@@ -16,145 +16,6 @@ This file formalises how Phase 1 is conducted.
 
 ---
 
-## 1. Dataset Scope and Size Constraints
-
-### 1.1 Working Corpus Size
-
-**Decision:**  
-The working corpus is capped at approximately 200 ICU progress notes.
-
-**Rationale:**  
-- Sufficient for structural pattern discovery  
-- Sufficient for deterministic rule development  
-- Sufficient for small-scale supervised validation  
-- Avoids unnecessary scale inflation  
-- Aligns with project scope (design demonstration, not population inference)
-
-This project prioritises architectural clarity over dataset magnitude.
-
----
-
-### 1.2 Inclusion Criteria
-
-**Decision:**  
-- Only ICU progress notes meeting predefined selection criteria are included.
-- Detailed filtering logic is documented in the profiling notebook.
-
-**Constraint:**  
-- Corpus composition is frozen for the duration of Phase 1.
-
----
-
-## 2. Quantitative Profiling Strategy
-
-### 2.1 Full-Corpus Analysis
-
-**Decision:**  
-Quantitative profiling is performed on the full working corpus (n ≈ 200).
-
-**Constraint:**  
-- No subsampling is used for distributional measurements.
-
-**Rationale:**  
-- Computationally inexpensive  
-- Ensures complete structural visibility  
-- Eliminates sampling bias in distributional measurements  
-
----
-
-## 3. Manual Inspection Strategy
-
-### 3.1 Manual Inspection Cap
-
-**Decision:**  
-Manual inspection is capped at approximately 40–50 notes.
-
-**Rationale:**  
-- Structural pattern saturation expected within this range  
-- Manual review beyond this threshold yields diminishing returns  
-- Prevents disproportionate allocation of effort to qualitative review  
-
----
-
-### 3.2 Sampling Method
-
-**Decision:**  
-- Manual inspection uses stratified sampling to capture variability in length and structure.
-- Exact stratification parameters are determined after corpus loading.
-
-**Rationale:**  
-- Ensures coverage of short, medium, and long notes  
-- Captures variation in section density and formatting  
-- Reduces risk of overfitting rule design to homogeneous samples  
-
-Specific sampling parameters will be finalised after corpus access.
-
----
-
-
-
-
-
-
-
-
----
-
-## 4. Analytical Boundaries Within Phase 1
-
-Phase 1 is restricted to structural and surface-level linguistic analysis.
-
-The following are explicitly excluded:
-
-- Entity extraction
-- Rule drafting
-- Schema design
-- Negation implementation
-- Model experimentation
-- Annotation
-
-These activities belong to subsequent phases.
-
----
-
-## 5. Phase 1 Execution Freeze
-
-At the conclusion of Phase 1:
-
-- Corpus size remains fixed.
-- Quantitative profiling has been performed on all notes.
-- Manual inspection has been completed within defined limits.
-- No rule construction or modelling has been initiated.
-
-Any deviation from these constraints requires formal revision of this document.
-
-1. Phase 1 — Working Corpus (n ≈ 200)
-	•	Purpose: rapid iteration, debugging, and rule validation.
-	•	Selection: stratified sampling across ICU types, note authors, and lengths to capture variability.
-	•	Activities:
-	•	Test preprocessing pipeline (JSON conversion, time window filtering, CATEGORY restrictions, ISERROR removal).
-	•	Identify structural patterns for extraction rules.
-	•	Validate metadata joins (PATIENTS → ICUSTAYS → NOTEEVENTS).
-	•	Outcome: reliable rules and deterministic scripts ready to scale.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Dataset Decisions — Phase 1
-
 ## Adult ICU Early Report Corpus Construction
 
 ### 1. Purpose
@@ -588,7 +449,6 @@ This phase reduces architectural risk and informs Phase 2 rule design.
 
 ## Quantitative Structural Profiling
 
-
 ### 1. Purpose
 
 This stage performs quantitative structural profiling on a sampled subset of the frozen ICU corpus
@@ -932,115 +792,334 @@ Conclusion:
 
 ---
 
-#### 8.5 Cross-Metric Structural Synthesis
+#### 8.5 Structural Synthesis and Architectural Implications
 
-1. Colon headers are highly prevalent (81.2%) and often dense.
-2. Uppercase templating appears in ~50% of notes.
-3. Numeric density is near-universal (93.6%).
-4. BP patterns are conditionally common (40.6%).
-5. De-identification artefacts are widespread (78.8%).
-6. Length variability is high but structurally bounded.
+Quantitative profiling demonstrates:
 
-Architectural Implications:
+- Colon headers are highly prevalent (81.2%) and often dense.
+- Uppercase templating appears in approximately half of notes.
+- Numeric density is near-universal (93.6%).
+- BP patterns are conditionally common (40.6%).
+- De-identification artefacts are widespread (78.8%).
+- Note length variability is large but structurally bounded.
 
-- Section-based segmentation is strongly supported.
-- Numeric candidate extraction is robustly justified.
-- Artefact normalization is mandatory preprocessing.
-- Structural heterogeneity exists but does not undermine rule-based feasibility.
+Collectively, these findings confirm:
 
----
+- Section-based segmentation is structurally supported in the majority of notes.
+- Deterministic numeric and physiologic extraction is justified.
+- Artefact normalization is a required preprocessing step.
+- Structural heterogeneity exists but does not invalidate rule-based candidate generation.
 
-### Final Determination
-
-Under the revised profiling logic:
-
-- Structural assumptions identified during manual inspection hold at scale.
-- Colon-based segmentation is more robust than previously estimated.
-- Numeric and physiologic regex extraction is structurally justified.
-- No quantitative evidence suggests deterministic candidate generation would be brittle at corpus scale.
-
-Quantitative profiling confirms feasibility, scope boundaries, and robustness characteristics for Phase 2 rule-based extraction.
+No quantitative evidence suggests brittleness at corpus scale.  
+Deterministic extraction in Phase 2 remains methodologically justified.
 
 ---
 
-### 9. Per-Note Metric Distributions
+### 9. Inspection of Structural Extremes
 
 #### Objective
 
-This stage performs targeted boundary inspection of the per-note metrics (`profiling_per_note.csv`) to validate deterministic robustness at structural extremes. Summary statistics confirm central tendencies and prevalence, but do not reveal whether extreme structural variants violate assumptions.
+- This stage performs targeted boundary inspection of the per-note metrics (`profiling_per_note.csv`) to validate deterministic robustness at structural extremes.
+- Aggregate summary statistics establish prevalence and central tendency. However, they do not reveal whether extreme structural variants violate rule assumptions.
+- Boundary inspection ensures Phase 2 rule logic remains valid across the full observed structural range.
 
-- For each metric, the 5 lowest-value and 5 highest-value notes are examined.  
-- This captures sparsity and density boundaries that summary statistics cannot reveal.
+---
 
-Boundary inspection evaluates whether extreme structural variants:
+#### 9.1 Rationale for Extreme-Based Inspection
+
+Structural brittleness emerges at boundaries, not at the mean, therefore:
+
+- For each functional metric, the 5 lowest-value and 5 highest-value notes are inspected.
+- This captures both sparsity (absence of signal) and density (signal saturation).
+
+This approach tests whether extreme variants:
 
 1. Violate section segmentation assumptions  
-2. Collapse formatting (e.g., unbroken text blocks)  
-3. Produce pathological numeric density  
-4. Contain malformed or inconsistent artefacts  
-5. Introduce structural instability not visible in summary statistics  
+2. Collapse formatting (e.g., single-block unstructured text)  
+3. Exhibit pathological numeric density  
+4. Contain malformed or nested artefacts  
+5. Introduce edge-case formatting not visible in aggregate statistics  
 
-This procedure ensures Phase 2 rule implementation is informed by the full observed range of structural variability rather than central averages.
-
----
-
-#### 9.1 `colon_header_count`
-
-	•	Inspect notes with:
-	•	0 headers
-	•	10 headers
-
-Questions:
-	•	Are zero-header notes narrative blobs?
-	•	Are high-header notes templated system notes?
-
-⸻
-
-#### 9.2 `uppercase_header_count`
-	•	Inspect:
-	•	0
-	•	20
-
-Confirm:
-	•	Is uppercase usage systematic or noisy?
-
-⸻
-
-#### 9.3 `numeric_token_count`
-	•	Inspect:
-	•	0
-	•	200
-
-Confirm:
-	•	Are high-density notes flowsheets?
-	•	Are zero-density notes short procedural notes?
-
-⸻
-
-`bp_pattern_count`
+Extremes provide maximal stress-testing efficiency without requiring full manual review of all 500 notes.
 
 ---
 
-#### 9.4 `deid_token_count`
-	•	Inspect:
-	•	0
-	•	30
+#### 9.2 Metric Selection Strategy
 
-Confirm:
-	•	Is de-identification placement consistent?
-	•	Are tokens well-formed?
+**Functional Metrics (Top 5 + Bottom 5)**
 
-⸻
+Applied to:
 
-#### 9.5 `char_length`, 
-	•	Inspect:
-	•	Shortest 3
-	•	Longest 3
+- `colon_header_count`
+- `uppercase_header_count`
+- `numeric_token_count`
+- `bp_pattern_count`
+- `deid_token_count`
 
-Confirm:
-	•	Do longest notes remain structurally parseable?
-	•	Any formatting collapse?
+Reasoning:
 
-`token_count`
+- These directly influence deterministic extraction logic.
+- Both absence and saturation states are architecturally meaningful.
+- Low values test fallback robustness.
+- High values test over-segmentation and over-matching risk.
 
-`line_count`
+---
+
+**Structural Metrics (Length Extremes Only)**
+
+Applied only to:
+
+- `char_length` (top 2 + bottom 2)
+
+Reasoning:
+
+- `token_count` and `line_count` are highly correlated with `char_length`.
+- Inspecting all three produces redundant examples.
+- Length captures macro-structural variability sufficiently.
+
+Only 2 highest and 2 lowest are selected because:
+
+- Structural size variation is continuous.
+- Extreme tails are more informative than multiple mid-extreme samples.
+- This reduces manual redundancy while preserving coverage.
+
+---
+
+#### 9.3 Deduplication Strategy
+
+Extreme indices are collected into a `set`.
+
+This ensures:
+
+- Notes extreme across multiple metrics are inspected once.
+- Manual review effort scales with structural diversity, not metric count.
+- Overlapping outliers do not inflate inspection workload.
+
+The resulting extreme set therefore represents unique structural boundary cases across all functional dimensions.
+
+---
+
+#### 9.4 Script Workflow
+
+All steps are implemented in `profiling_boundary_extremes.ipynb`:
+
+1. Load per-note metric file (`profiling_per_note.csv`).
+2. Load corresponding raw note text file (`profiling_sample_500.csv`).
+3. For each functional metric:
+   - Sort ascending → select bottom 5 indices.
+   - Sort descending → select top 5 indices.
+   - Add these indices to the extreme indices set.
+4. For structural size:
+   - Select top 2 and bottom 2 by `char_length`.
+   - Add these indices to the extreme length indices set.
+5. For each unique extreme index:
+   - Print all relevant metric values.
+   - Print full raw note text.
+6. Perform manual structural inspection.
+
+This workflow produces a compact but comprehensive boundary review set.
+
+#### 9.5 Extreme Note Analysis
+
+Boundary inspection was performed on 45 structurally extreme notes selected across functional and macro-structural metrics:
+
+- Total unique extreme notes: 42  
+- Total unique length-extreme notes: 4  
+- Total unique notes overall: 45  
+
+This section summarizes recurring structural patterns rather than individual note commentary.
+
+---
+
+**A. High Header Density Notes (≈60–110+ colon headers)**
+
+Observed Pattern:
+
+- Highly templated ICU admission and transfer summaries  
+- Repeated structured blocks (HPI, PMHx, ROS, Physical Examination, Labs/Radiology, Assessment and Plan, ICU Care)  
+- Enumerated problem lists with numeric prefixes (e.g., `1. LLE swelling.`)  
+- Embedded flowsheet tables (Vital Signs, Hemodynamics, Fluid Balance)  
+- Appended attending addenda and “Protected Section” content  
+- EMR-generated reference blocks and occasional JavaScript/link fragments appended at document end  
+
+Structural Characteristics:
+
+- Colon headers consistently function as reliable structural delimiters.  
+- Uppercase and colon-based headers frequently coexist.  
+- Numbered problem lists integrate cleanly with colon-based patterns.  
+- Repeated section scaffolds (e.g., multiple “Assessment and Plan” layers) remain syntactically valid.  
+- Addenda, protected sections, and trailing EMR reference/link artefacts are clearly demarcated and structurally separable.  
+- Template repetition increases density but does not introduce delimiter ambiguity.  
+
+Conclusion:
+
+Extreme header density reflects EMR templating, interdisciplinary layering, and ICU documentation conventions rather than structural instability. Colon-based segmentation remains stable at maximal density, including across appended artefact blocks.
+
+---
+
+**B. Moderate-to-Low Header Notes**
+
+Observed Pattern:
+
+- Focused ICU updates or ward progress notes  
+- Problem-oriented scaffolds (e.g., “Assessment / Action / Response / Plan”)  
+- Semi-structured outlines with partially completed sections  
+- Condition headers followed by minimal narrative expansion  
+
+Structural Characteristics:
+
+- Sparse but syntactically valid delimiter usage.  
+- Header labels may appear without substantive body text.  
+- No malformed colon constructs observed.  
+- Structural sparsity reflects workflow variation rather than corruption.  
+
+Conclusion:
+
+Lower header counts represent stylistic and clinical workflow variation. Deterministic segmentation must tolerate partially populated or minimally structured templates.
+
+---
+
+**C. Zero-Header and Micro-Narrative Notes**
+
+Observed Pattern:
+
+- Brief respiratory therapy or nursing updates  
+- Short narrative summaries  
+- Administrative or transfer references  
+
+Structural Characteristics:
+
+- No colon or uppercase header markers.  
+- Some notes contain no numeric tokens or de-identification artefacts.  
+- Coherent free-text narrative despite brevity.  
+- No malformed formatting or delimiter ambiguity.  
+
+Conclusion:
+
+Zero-header notes represent short-form documentation archetypes. These define fallback narrative cases rather than structural failure modes.
+
+---
+
+**D. High Numeric Density Notes (≈150–400+ numeric tokens)**
+
+Observed Pattern:
+
+- Vertically stacked laboratory panels and serial timestamped labs  
+- Vital sign ranges with embedded MAP values (e.g., `104/70(77)`)  
+- Medication dosing strings and infusion rates  
+- Hematology, chemistry, coagulation, and microbiology result blocks  
+- Mixed inline and column-style numeric alignment (ASCII lab tables)  
+
+Structural Characteristics:
+
+- Numeric clustering occurs within clinically structured contexts.  
+- BP-style expressions include ranges and parentheses without ambiguity.  
+- Lab panels may include ASCII separators (e.g., dashed dividers) but remain structurally bounded.  
+- Numeric-heavy notes frequently coexist with high header and de-identification density.  
+- No digit fragmentation or token boundary corruption observed.  
+
+Conclusion:
+
+Extreme numeric density reflects ICU complexity and integrated EMR lab reporting. Regex-based numeric extraction remains structurally robust under saturation and table-like alignment patterns.
+
+---
+
+**E. De-identification and EMR Artefacts**
+
+Observed Pattern:
+
+- Repeated `[** ... **]` masking for dates, institutions, clinicians, and identifiers  
+- Redactions embedded within headers, numeric ranges, and narrative text  
+- Masked timestamps and numeric intervals within brackets  
+- Appended attending attestations and EMR-generated protected sections  
+- EMR-generated reference blocks and occasional trailing JavaScript/link fragments  
+
+Structural Characteristics:
+
+- Uniform `[** ... **]` formatting without malformed, truncated, or nested markers.  
+- No instances of nested or partially closed redaction tokens were observed.  
+- Redactions do not break header syntax or numeric pattern detection.  
+- No ambiguous overlap between masking syntax and colon delimiters.  
+- EMR reference and JavaScript/link artefacts are consistently appended and structurally separable from core clinical narrative.  
+
+Conclusion:
+
+De-identification and EMR artefacts are systematic and structurally stable. Preprocessing normalization (mask removal and artefact trimming) is required but straightforward. No evidence of delimiter corruption, header misclassification, or numeric pattern interference was identified.
+
+---
+
+**F. Hybrid Template + Narrative Structures**
+
+Observed Pattern:
+
+- Mixed uppercase headers, colon-based headers, and numbered problem lists  
+- Narrative paragraphs interleaved with structured blocks  
+- ICU Care sections followed by attending addenda  
+- Duplicate communication, code status, or disposition sections  
+
+Structural Characteristics:
+
+- Multiple structural conventions coexist without delimiter collision.  
+- Header syntax remains internally consistent across sections.  
+- Template layering increases length and density but not ambiguity.  
+- Addenda remain separable from primary plan sections.  
+
+Conclusion:
+
+Hybrid structuring increases heterogeneity but does not undermine rule-based segmentation assumptions. Structural conventions remain separable and internally coherent.
+
+---
+
+**G. Boundary Length Extremes**
+
+Observed Pattern:
+
+- Ultra-short notes (1–3 lines; minimal tokens)  
+- Header-only scaffolds without body text  
+- Extremely long ICU admissions (>15,000 characters; >2,500 tokens; ~400 lines)  
+- Long notes combining narrative history, lab tables, flowsheets, enumerated plans, protected addenda, and EMR reference blocks  
+
+Structural Characteristics:
+
+- Shortest notes show no malformed constructs despite minimal content.  
+- Longest notes exhibit dense layering of templated sections and numeric panels.  
+- Structural repetition scales linearly rather than chaotically.  
+- No delimiter instability observed at maximal size.  
+
+Conclusion:
+
+Macro-level size variability is substantial but structurally bounded. Deterministic parsing scales across both minimal and maximal documentation without observed instability.
+
+---
+
+**Structural Integrity Assessment Across Extremes**
+
+Across all inspected extremes:
+
+- No malformed colon-header constructs.  
+- No delimiter collisions or ambiguous header boundaries.  
+- No uppercase non-header lines falsely triggering header logic during manual inspection.  
+- No broken BP-style expressions.  
+- No numeric tokenization anomalies at density extremes.  
+- No corrupted, nested, or truncated de-identification markers.  
+- No structural instability at minimal or maximal document length.  
+- EMR reference and JavaScript/link artefacts remain consistent and patternable.  
+- No hybrid cases invalidate rule-based segmentation assumptions.  
+
+---
+
+**Boundary Validation Outcome**
+
+Manual inspection of structural extremes confirms:
+
+- Colon-based segmentation is robust under sparse and saturated header conditions.  
+- Uppercase header usage is stylistically variable but structurally consistent.  
+- Numeric and physiologic regex extraction remains stable under dense lab stacking and ASCII-style table layouts.  
+- Artefact normalization (de-identification, protected sections, and EMR reference/link trimming) is mandatory but structurally straightforward.  
+- Zero-header and micro-narrative notes represent expected workflow variation rather than structural failure.  
+
+No structural failure modes were identified at corpus boundaries.
+
+Phase 2 deterministic extraction remains architecturally justified.
+
+----
