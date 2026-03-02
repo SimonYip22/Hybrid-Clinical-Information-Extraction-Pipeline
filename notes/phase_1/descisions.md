@@ -1,8 +1,8 @@
-# Phase 1 — Corpus Profiling Methodological Decisions
+# Phase 1 — Corpus Profiling Methodological Decisions and Analysis
 
 ## Objective
 
-This document defines the methodological decisions governing execution of Phase 1 (Corpus Profiling).
+This document defines the methodological decisions governing execution of Phase 1 (Corpus Profiling) as well as the analytical outcomes derived from quantitative profiling.
 
 It specifies:
 
@@ -10,20 +10,9 @@ It specifies:
 - Sampling limits for manual inspection
 - Structural analysis constraints
 - Explicit exclusions within this phase
+- Quantitative profiling metrics and their interpretation
 
 This file formalises how Phase 1 is conducted.
-
-It does not:
-
-- Present empirical findings (see `corpus_profiling.ipynb`)
-- Interpret structural implications (see `summary.md`)
-- Define design choices for later phases
-
-
-	•	Phase 1 — Sample Inspection & Profiling
-	•	Small subset of notes (~200)
-	•	Manual review for structure, sections, abbreviations, formatting
-	•	Output: descriptive insights to guide extraction logic
 
 ---
 
@@ -164,9 +153,11 @@ Any deviation from these constraints requires formal revision of this document.
 
 
 
-# Dataset Decisions — Adult ICU Early Report Corpus
+# Dataset Decisions — Phase 1
 
-## 1. Purpose
+## Adult ICU Early Report Corpus Construction
+
+### 1. Purpose
 
 - This document specifies the exact cohort definition, filtering logic, and design decisions used to construct the ICU early-note corpus from MIMIC-III.
 - It serves as the formal reproducibility and audit specification for `build_corpus.py`.
@@ -174,11 +165,11 @@ Any deviation from these constraints requires formal revision of this document.
 
 ---
 
-# 2. Data Sources and Required Columns
+### 2. Data Sources and Required Columns
 
 Only minimal required columns were loaded to reduce memory usage and prevent accidental feature leakage.
 
-## 2.1 PATIENTS
+#### 2.1 PATIENTS
 
 | Column       | Purpose                          |
 |-------------|----------------------------------|
@@ -188,7 +179,7 @@ Only minimal required columns were loaded to reduce memory usage and prevent acc
 
 ---
 
-## 2.2 ICUSTAYS
+#### 2.2 ICUSTAYS
 
 | Column         | Purpose |
 |---------------|---------|
@@ -206,7 +197,7 @@ Therefore, `SUBJECT_ID` + `HADM_ID` are required to correctly link notes to ICU 
 
 ---
 
-## 2.3 NOTEEVENTS
+#### 2.3 NOTEEVENTS
 
 | Column       | Purpose |
 |-------------|---------|
@@ -219,13 +210,13 @@ Therefore, `SUBJECT_ID` + `HADM_ID` are required to correctly link notes to ICU 
 
 ---
 
-# 3. Cohort Definition Logic
+### 3. Cohort Definition Logic
 
 The ICU stay is the anchor. All filtering is defined relative to the ICU stay.
 
 ---
 
-## 3.1 ICU Unit Restriction
+#### 3.1 ICU Unit Restriction
 
 Allowed ICU types:
 
@@ -239,7 +230,7 @@ Allowed ICU types:
 
 ---
 
-## 3.2 Minimum Length of Stay
+#### 3.2 Minimum Length of Stay
 
 `LOS_HOURS` = (`OUTTIME` − `INTIME`) converted to hours.
 
@@ -254,7 +245,7 @@ Reasoning:
 
 ---
 
-## 3.3 Adult Cohort Definition
+#### 3.3 Adult Cohort Definition
 
 Age calculated as:
 
@@ -268,7 +259,7 @@ Reasoning:
 - Restricts to adult ICU population
 - Removes paediatric/adolescent admissions
 
-### Handling De-identified Ages
+**Handling De-identified Ages**
 
 In MIMIC-III, patients older than 89 have shifted DOB values.
 
@@ -283,11 +274,11 @@ Reasoning:
 
 ---
 
-# 4. Note Filtering Logic
+### 4. Note Filtering Logic
 
 ---
 
-## 4.1 Allowed Note Categories
+#### 4.1 Allowed Note Categories
 
 `CATEGORY` values were normalised (strip + lowercase).
 
@@ -304,7 +295,7 @@ Reasoning:
 
 ---
 
-## 4.2 Error Filtering
+#### 4.2 Error Filtering
 
 Rule:
 
@@ -319,7 +310,7 @@ This was corrected to exclude only explicit errors.
 
 ---
 
-## 4.3 ICU Cohort Enforcement
+#### 4.3 ICU Cohort Enforcement
 
 Notes were inner joined to valid ICU stays using:
 
@@ -335,7 +326,7 @@ Reasoning:
 
 ---
 
-## 4.4 Early Time Window Restriction
+#### 4.4 Early Time Window Restriction
 
 Constraint:
 
@@ -352,7 +343,7 @@ Reasoning:
 
 ---
 
-# 5. Logging and Integrity Verification
+### 5. Logging and Integrity Verification
 
 Row counts were logged after each major filtering step.
 
@@ -367,7 +358,7 @@ All final counts below reflect corrected logic.
 
 ---
 
-# 6. Final Cohort Statistics
+### 6. Final Cohort Statistics
 
 Initial:
 
@@ -392,7 +383,7 @@ Final corpus:
 
 ---
 
-# 7. Derived Cohort Properties
+### 7. Derived Cohort Properties
 
 - ~72.7% of adult ICU stays contain ≥1 qualifying early note  
 - ~18.3% of ICU-linked notes fall within first 24 hours  
@@ -402,7 +393,7 @@ These values are internally consistent and plausible for early ICU documentation
 
 ---
 
-# 8. Final Output Structure
+### 8. Final Output Structure
 
 Each row represents one ICU clinical note.
 
@@ -425,7 +416,7 @@ Saved to:
 
 ---
 
-# 9. Post-Corpus Plan
+### 9. Post-Corpus Plan
 
 The corpus is now frozen (162,296 notes across 32,910 ICU stays).  
 Next phase: structured validation and JSON schema design.
@@ -448,11 +439,21 @@ Scripted analysis to measure:
 
 Used to empirically support and stress-test schema assumptions.
 
-**Step 3 — Rule Validation (30–50 notes)**  
-After implementing feature extraction logic, perform deep manual comparison of:
-- Raw text vs extracted features
+**Step 3 — JSON Schema Definition and Feature Implementation**  
+Based on insights from Steps 1–2:
+- Define structured JSON schema fields
+- Implement section extraction logic
+- Implement regex rules and text-cleaning logic
+- Construct feature extraction pipeline
+
+This produces structured JSON output from raw note text.
+
+**Step 4 — Rule Validation (30–50 notes)**  
+Perform deep manual comparison of:
+- Raw text vs generated JSON
 - Section parsing correctness
 - Regex precision and edge cases
+- Failure modes and systematic errors
 
 Rules are refined here, then frozen and applied to the full corpus.
 
@@ -460,3 +461,586 @@ No train/test split is performed at this stage.
 This phase transitions from corpus construction to NLP feature engineering.
 
 ---
+
+## Manual Structural Analysis
+
+### 1. Purpose
+
+- To determine whether deterministic, rule-based candidate extraction is feasible within the ICU note corpus prior to implementing any extraction logic.
+- A random sample of 30 notes was selected because it is sufficient to identify dominant structural patterns and variability without being overwhelming for manual review.
+- The script `manual_sample.py` randomly selected 30 notes from the processed ICU corpus and exported them as `manual_sample_30.csv` for qualitative structural inspection.
+- No extraction or modeling was performed at this stage.
+
+---
+
+### 2. Structural Archetypes Identified
+
+Manual inspection revealed that notes cluster into a small number of recurring structural families:
+
+1. **Physician ICU Notes**
+   - Long-form
+   - Templated sections (e.g., Chief Complaint, HPI, Physical Exam, Assessment and Plan)
+   - Embedded flowsheet blocks
+   - Highly structured macro-organization
+
+2. **Nursing Progress Notes**
+   - System-based headers (e.g., Neuro, CV, Resp, GI)
+   - Assessment / Action / Response / Plan patterns
+   - Semi-structured, section-delimited format
+
+3. **Respiratory Care / Procedural Notes**
+   - Short
+   - Intervention-dense
+   - Limited narrative
+
+4. **Cardiac Surgery / Specialty ICU Notes**
+   - Hemodynamic and intervention-heavy
+   - Dense numeric content
+   - Structured system breakdown
+
+No evidence of chaotic or unstructured free-text-only notes was observed.
+
+Conclusion: The corpus demonstrates macro-level structural regularity.
+
+---
+
+### 3. Section Header Patterns
+
+Section headers appear in multiple but predictable formats:
+
+- Colon-terminated (e.g., `Assessment:`)
+- Uppercase system blocks (e.g., `NEURO:`)
+- Title-style headers (e.g., `Chief Complaint`)
+- Inline system markers (e.g., `CV:`)
+
+Header presence is common across note types.
+
+Conclusion: Section segmentation via deterministic rules is feasible.
+
+---
+
+### 4. Flowsheet and Numeric Blocks
+
+Physician notes frequently contain templated flowsheet sections including:
+
+- Vital signs
+- Hemodynamic summaries
+- Fluid balance summaries
+
+Vitals appear in three contexts:
+1. Narrative sentences
+2. Structured flowsheet blocks
+3. Abbreviated nursing shorthand
+
+Conclusion: Numeric pattern-based extraction is viable but must handle multiple formatting contexts.
+
+---
+
+### 5. Formatting Artefacts
+
+The following systematic artefacts were observed:
+
+- De-identification tokens (e.g., `[** ... **]`)
+- Broken line wrapping
+- Inconsistent spacing
+- Embedded structured tables
+
+These artefacts are consistent and predictable rather than random noise.
+
+Conclusion: Preprocessing decisions will be required, but artefacts do not prevent deterministic parsing.
+
+---
+
+### 6. Entity Schema Feasibility
+
+The provisional entity categories:
+
+- `SYMPTOM`
+- `INTERVENTION`
+- `COMPLICATION`
+- `VITAL_MENTION`
+
+were observed frequently and naturally within the sample.
+
+High intervention density and numeric density support the feasibility of rule-based candidate generation.
+
+No structural incompatibility with the proposed schema was identified.
+
+---
+
+### Overall Conclusion of Manual Phase
+
+The ICU corpus is:
+
+- Section-rich
+- Structurally repetitive at macro level
+- Numerically dense
+- Abbreviation-heavy but predictable
+- Suitable for deterministic candidate extraction
+
+- Phase 1 confirms that a hybrid architecture is appropriate for this dataset.
+- Dual architecture feasible: Rule-based candidate generation → Transformer validation → Structured JSON output
+- No extraction logic was implemented at this stage.
+
+This phase reduces architectural risk and informs Phase 2 rule design.
+
+---
+
+## Quantitative Structural Profiling
+
+
+### 1. Purpose
+
+This stage performs quantitative structural profiling on a sampled subset of the frozen ICU corpus
+
+- The objective is not clinical inference or statistical generalisation to a population, but engineering validation.
+- This evaluates whether structural assumptions identified during manual inspection are stable at scale and not fragile artefacts of a 30-note sample.
+
+Manual inspection identified recurring structural patterns which generated structural hypotheses about the corpus:
+
+- Section-rich documents with templated headers
+- Numeric-dense flowsheet content
+- Systematic de-identification artefacts
+- Clear macro-level structural archetypes (physician, nursing, procedural, specialty ICU)
+
+Quantitative profiling tests whether those hypotheses hold at scale by validating the stability of:
+
+- Section/header recurrence
+- Numeric density stability
+- Artefact prevalence
+- Structural variability via note length
+
+Profiling reduces architectural risk before deterministic rule implementation in Phase 2.
+
+---
+
+### 2. Phase Boundary Clarification
+
+#### Why Profiling Occurs Before Rule Implementation
+
+Rule-based systems fail when structural assumptions are incorrect — for example:
+
+- Section delimiters are inconsistent  
+- Numeric formatting is irregular  
+- Artefacts are unpredictable  
+- Target patterns are too sparse  
+
+Quantitative profiling is a pre-implementation risk assessment step. It verifies that:
+
+- Section segmentation will generalise  
+- Numeric pattern-based extraction is justified  
+- Artefacts are systematic  
+- Structural variability is bounded  
+
+This ensures Phase 2 rule implementation is informed rather than speculative.
+
+#### Scope of This Stage
+
+This stage does not:
+
+- Extract entities  
+- Implement extraction logic  
+- Construct JSON schema  
+- Train or validate transformer models  
+
+It validates only that deterministic extraction is structurally feasible.
+
+Quantitative profiling is the final structural checkpoint before transitioning from corpus analysis to rule engineering.
+
+---
+
+### 3. Continuity from Manual Inspection
+
+The profiling metrics are directly derived from structural signals identified in the 30-note manual analysis.
+
+Manual findings → Quantitative validation:
+
+| Manual Observation | Profiling Measurement |
+|-------------------|-----------------------|
+| Notes are section-rich | Colon-terminated header count |
+| Uppercase/system blocks common | Uppercase header count |
+| ICU notes numerically dense | Numeric token count |
+| BP and vital patterns frequent | BP-style pattern count |
+| De-identification tokens systematic | De-id token count |
+| Archetypes vary in size (short procedural vs long physician) | Character length, token count, line count |
+
+Profiling does not attempt to recreate qualitative inspection.  
+It measures only the structural signals that determine rule feasibility.
+
+---
+
+### 4. What Is Being Measured
+
+For each of the 500 sampled notes, the profiling script computes the following structural signals:
+
+| Category | Metric | What It Measures (Operational Definition) | Why It Matters |
+|-----------|--------|--------------------------------------------|----------------|
+| **Header Signals** | `colon_header_count` | Count of colon-terminated headers at line start, allowing leading whitespace and optional numeric prefixes (e.g., `Assessment:`, `NEURO:`, `    Plan:`, `15. Morphine:`). Pattern requires an uppercase initial character and alphabetic content before the colon. | Validates presence of consistent section delimiters for deterministic segmentation and rule-based splitting. |
+|  | `uppercase_header_count` | Count of fully uppercase colon-terminated headers at line start, allowing indentation and multi-word uppercase headers (e.g., `NEURO:`, `CV:`, `CARDIO VASCULAR:`). Each word must contain ≥2 uppercase letters. | Measures intensity of strongly templated or system-based note structure. Acts as a stricter subset indicator of structured formatting. |
+| **Numeric Density Signals** | `numeric_token_count` | Count of standalone numeric tokens (integers or decimals) bounded by word boundaries (e.g., `120`, `98.6`). Excludes embedded alphanumeric strings (e.g., `HR98`, `BP120/80`). | Quantifies numeric density, reflecting physiologic measurement burden and structured data presence. |
+|  | `bp_pattern_count` | Count of structured blood pressure expressions, including optional ranges and optional whitespace around the slash (e.g., `120/80`, `120-130/90`, `170-180/109-112`, `120 / 80`). | Validates feasibility of deterministic extraction of physiologic measurements using regex-based rules. |
+| **Artefact Signals** | `deid_token_count` | Count of MIMIC de-identification tokens using non-greedy matching of `[** ... **]` blocks. | Confirms systematic preprocessing artefacts that require removal or normalization prior to downstream modelling. |
+| **Structural Variability Metrics** | `char_length` | Total character length of the note. | Quantifies macro-level length variability across note archetypes. |
+|  | `token_count` | Total word count of the note. | Measures narrative density and verbosity differences. |
+|  | `line_count` | Number of newline-separated lines. | Captures formatting granularity, section fragmentation, and structural spread. |
+
+These metrics operationalize structural characteristics identified during qualitative inspection and provide quantitative validation that deterministic rule-based extraction and segmentation are feasible at scale.
+
+---
+
+### 5. Metric Scope Sufficiency
+
+Quantitative profiling is not entity extraction and not schema implementation, it answers four architectural questions:
+
+1. Do reliable section delimiters exist?
+2. Is numeric information dense enough for pattern-based extraction?
+3. Are formatting artefacts systematic rather than random?
+4. Is note length variability bounded and predictable?
+
+If these conditions hold across 500 notes, deterministic candidate generation is viable.
+
+Measuring additional semantic features at this stage would prematurely enter Phase 2.
+
+This stage validates feasibility, not completeness.
+
+---
+
+### 6. Sampling Decision
+
+Sample size:
+
+- 500 randomly sampled notes from the frozen corpus (n = 162,296)
+- No stratification required
+- Random seed fixed for reproducibility
+
+Rationale:
+
+- 30 notes sufficient for qualitative pattern discovery
+- 500 notes sufficient for structural frequency stabilisation
+- Structural signals (headers, numeric patterns) converge quickly
+- Full 160k profiling provides negligible additional architectural value
+- <200 risks instability
+
+This is a pragmatic engineering validation sample size.
+
+We are not estimating population statistics.
+We are confirming robustness of deterministic parsing assumptions.
+
+---
+
+### 7. Profiling Procedure
+
+The quantitative profiling stage is implemented in `quant_profiling.py`
+
+#### 7.1 Data Loading and Sampling
+
+- Input: `data/processed/icu_corpus.csv` with 162,296 notes
+- Random sample of 500 notes
+- Fixed `RANDOM_STATE = 42` for reproducibility
+- Sample saved to: `data/sample/profiling_sample_500.csv`
+
+---
+
+#### 7.2 Per-Note Metric Computation
+
+For each sampled note:
+
+1. The `TEXT` field is coerced to string.
+2. The following structural metrics are computed:
+
+   - `colon_header_count` for colon-terminated headers
+   - `uppercase_header_count` for uppercase system headers
+   - `numeric_token_count` for numeric density
+   - `bp_pattern_count` for BP-style patterns
+   - `deid_token_count` for de-identification artefacts
+   - `char_length` for note length
+   - `token_count` for word count
+   - `line_count` for formatting structure
+
+3. Results are stored as one dictionary per note.
+4. All dictionaries are converted into a 500-row DataFrame.
+5. Per-note output saved to: `data/sample/profiling_per_note.csv`
+   - Each row corresponds to one note.
+   - Each column corresponds to one structural metric.
+
+---
+
+#### 7.3 Summary Statistics Computation
+
+1. The script then using `.describe()` computes:
+   - Count of non-null values
+   - Mean
+   - Standard deviation
+   - Minimum 
+   - 25th percentile 
+   - Median 
+   - 75th percentile
+   - Maximum 
+2. Compute `percent_notes_nonzero`:
+   - Computed for each metric to measure prevalence across the sample.
+   - Percentage of notes with non-zero metric value = (number of notes with metric > 0) / 500 * 100
+3. Summary output saved to: `data/sample/profiling_summary.csv`
+
+---
+
+### 8. Interpretation of Profiling Results
+
+This section interprets the aggregated summary statistics from `profiling_summary.csv` to determine whether structural assumptions hold at scale under the updated profiling logic.
+
+---
+
+#### 8.1 Header Signals
+
+| Metric | Mean | Median | 75th % | Max | % Non-Zero |
+|--------|------|--------|--------|-----|------------|
+| `colon_header_count` | 18.46 | 8 | 20.25 | 113 | 81.2% |
+| `uppercase_header_count` | 4.41 | 1 | 9 | 35 | 51.0% |
+
+**Colon Headers**
+
+- Median = 8  
+- 81.2% of notes contain ≥1 colon-terminated header  
+- Upper quartile = 20.25  
+- Maximum = 113  
+
+This represents a substantial increase compared to earlier profiling logic, reflecting the expanded header definition (indentation + optional numbering + broader matching).
+
+Implications:
+
+- Colon-terminated headers are clearly structurally dominant, not marginal.
+- The distribution is strongly right-skewed, with a long tail of highly templated notes.
+- Deterministic section-based segmentation is not merely feasible — it is structurally well-supported in the majority of the corpus.
+- Only ~19% of notes lack colon headers, meaning fallback logic is needed but not primary.
+
+Conclusion:
+
+- Colon-based deterministic segmentation is justified as a core architectural assumption.
+
+
+**Uppercase Headers**
+
+- Median = 1  
+- Mean = 4.41  
+- 75th percentile = 9  
+- Present in 51% of notes  
+
+This confirms:
+
+- Roughly half of notes contain strongly templated uppercase section blocks.
+- Distribution remains right-skewed.
+- Uppercase formatting is a secondary structural signal, not universal.
+
+Conclusion:
+
+- Uppercase headers act as a structural intensity marker.
+- They should be treated as optional structural reinforcement rather than a required delimiter.
+
+---
+
+#### 8.2 Numeric Density Signals
+
+| Metric | Mean | Median | 75th % | Max | % Non-Zero |
+|--------|------|--------|--------|-----|------------|
+| `numeric_token_count` | 49.43 | 17 | 58.5 | 432 | 93.6% |
+| `bp_pattern_count` | 1.41 | 0 | 3 | 11 | 40.6% |
+
+**Numeric Tokens**
+
+- Present in 93.6% of notes  
+- Median = 17  
+- 75th percentile = 58.5  
+- Maximum = 432  
+
+Observations:
+
+- Numeric content is near-universal.
+- Heavy right tail consistent with ICU-style documentation and flowsheet imports.
+- Large gap between median and max indicates mixed narrative vs data-dense archetypes.
+
+Conclusion:
+
+- Deterministic numeric extraction is strongly justified.
+- Regex-based candidate generation is structurally appropriate.
+
+---
+
+**Blood Pressure Patterns**
+
+- Present in 40.6% of notes  
+- Median = 0  
+- 75th percentile = 3  
+
+Observations:
+
+- BP expressions are common but not ubiquitous.
+- When present, often appear multiple times.
+- Whitespace-tolerant regex increases realistic capture coverage.
+
+Conclusion:
+
+- Structured physiologic extraction via regex is feasible but must tolerate absence.
+- BP patterns represent a conditional but reliable structured signal.
+
+---
+
+#### 8.3 De-identification Artefacts
+
+| Metric | Mean | Median | 75th % | Max | % Non-Zero |
+|--------|------|--------|--------|-----|------------|
+| `deid_token_count` | 7.05 | 3 | 9 | 66 | 78.8% |
+
+- Present in 78.8% of notes  
+- Median = 3  
+- Maximum = 66  
+
+Observations:
+
+- De-identification artefacts are widespread and systematic.
+- Heavy tail suggests some notes contain extensive redaction.
+
+Conclusion:
+
+- Preprocessing to remove or normalize `[** ... **]` tokens is mandatory prior to segmentation or extraction.
+- Artefact handling is not optional.
+
+---
+
+#### 8.4 Structural Variability
+
+| Metric | Mean | Median | 75th % | Max |
+|--------|------|--------|--------|-----|
+| `char_length` | 2694 | 1505 | 3417 | 17558 |
+| `token_count` | 368 | 241 | 480 | 2557 |
+| `line_count` | 65 | 26 | 86 | 456 |
+
+Observations:
+
+- Strong right-skew across all size metrics.
+- Large separation between median and maximum.
+- Wide variability in formatting density (line_count max = 456).
+
+Interpretation:
+
+- Multiple structural archetypes coexist (short procedural vs extensive summaries).
+- Variability is continuous, not erratic.
+- No evidence of structural sparsity collapse.
+
+Conclusion:
+
+- Deterministic rules must scale across wide note lengths.
+- Size variability does not invalidate structural regularity.
+
+---
+
+#### 8.5 Cross-Metric Structural Synthesis
+
+1. Colon headers are highly prevalent (81.2%) and often dense.
+2. Uppercase templating appears in ~50% of notes.
+3. Numeric density is near-universal (93.6%).
+4. BP patterns are conditionally common (40.6%).
+5. De-identification artefacts are widespread (78.8%).
+6. Length variability is high but structurally bounded.
+
+Architectural Implications:
+
+- Section-based segmentation is strongly supported.
+- Numeric candidate extraction is robustly justified.
+- Artefact normalization is mandatory preprocessing.
+- Structural heterogeneity exists but does not undermine rule-based feasibility.
+
+---
+
+### Final Determination
+
+Under the revised profiling logic:
+
+- Structural assumptions identified during manual inspection hold at scale.
+- Colon-based segmentation is more robust than previously estimated.
+- Numeric and physiologic regex extraction is structurally justified.
+- No quantitative evidence suggests deterministic candidate generation would be brittle at corpus scale.
+
+Quantitative profiling confirms feasibility, scope boundaries, and robustness characteristics for Phase 2 rule-based extraction.
+
+---
+
+### 9. Per-Note Metric Distributions
+
+#### Objective
+
+This stage performs targeted boundary inspection of the per-note metrics (`profiling_per_note.csv`) to validate deterministic robustness at structural extremes. Summary statistics confirm central tendencies and prevalence, but do not reveal whether extreme structural variants violate assumptions.
+
+- For each metric, the 5 lowest-value and 5 highest-value notes are examined.  
+- This captures sparsity and density boundaries that summary statistics cannot reveal.
+
+Boundary inspection evaluates whether extreme structural variants:
+
+1. Violate section segmentation assumptions  
+2. Collapse formatting (e.g., unbroken text blocks)  
+3. Produce pathological numeric density  
+4. Contain malformed or inconsistent artefacts  
+5. Introduce structural instability not visible in summary statistics  
+
+This procedure ensures Phase 2 rule implementation is informed by the full observed range of structural variability rather than central averages.
+
+---
+
+#### 9.1 `colon_header_count`
+
+	•	Inspect notes with:
+	•	0 headers
+	•	10 headers
+
+Questions:
+	•	Are zero-header notes narrative blobs?
+	•	Are high-header notes templated system notes?
+
+⸻
+
+#### 9.2 `uppercase_header_count`
+	•	Inspect:
+	•	0
+	•	20
+
+Confirm:
+	•	Is uppercase usage systematic or noisy?
+
+⸻
+
+#### 9.3 `numeric_token_count`
+	•	Inspect:
+	•	0
+	•	200
+
+Confirm:
+	•	Are high-density notes flowsheets?
+	•	Are zero-density notes short procedural notes?
+
+⸻
+
+`bp_pattern_count`
+
+---
+
+#### 9.4 `deid_token_count`
+	•	Inspect:
+	•	0
+	•	30
+
+Confirm:
+	•	Is de-identification placement consistent?
+	•	Are tokens well-formed?
+
+⸻
+
+#### 9.5 `char_length`, 
+	•	Inspect:
+	•	Shortest 3
+	•	Longest 3
+
+Confirm:
+	•	Do longest notes remain structurally parseable?
+	•	Any formatting collapse?
+
+`token_count`
+
+`line_count`
