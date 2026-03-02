@@ -54,11 +54,11 @@ RANDOM_STATE = 42
 
 def count_colon_headers(text):
     """
-    Counts colon-terminated headers at line start.
-    Example: 'Assessment:', 'NEURO:', 'Plan:'
+    Counts colon-terminated headers, including optional numbering and leading spaces.
+    Example: 'Assessment:', 'NEURO:', '    Plan:', '15. Morphine:', 'Chief complaint:'
     """
-    # Starts with uppercase, followed by letters/spaces, ending with colon
-    pattern = r"^[A-Z][A-Za-z\s]+:"
+    # Starts with zero or more spaces, then optional numbering and space, then uppercase character, followed by letters/spaces, ending with colon
+    pattern = r"^\s*(?:\d+\.\s*)?[A-Z][A-Za-z\s]*\s*:"
     # Use MULTILINE to apply ^ to each line, not just the first line of the text
     return len(re.findall(pattern, text, flags=re.MULTILINE))
 
@@ -67,10 +67,10 @@ def count_uppercase_blocks(text):
     """
     Counts fully uppercase section headers.
     More restrictive than colon headers, as some notes use only uppercase.
-    Example: 'NEURO:', 'CV:', 'RESP:'
+    Example: 'NEURO:', 'CV:', 'RESP:', '    NEURO:', '    CV:', 'CARDIO VASCULAR:'
     """
-    # Starts with uppercase letters or spaces, at least 3 characters, ending with colon
-    pattern = r"^[A-Z\s]{3,}:"
+    # Starts with zero or more spaces, then uppercase letters or spaces, at least 2 characters, optionally more upper case words or spaces, ending with colon
+    pattern = r"^\s*[A-Z]{2,}(?:\s+[A-Z]{2,})*\s*:"
     # Use MULTILINE to apply ^ to each line
     return len(re.findall(pattern, text, flags=re.MULTILINE))
 
@@ -81,18 +81,18 @@ def count_numeric_tokens(text):
     Example: '120', '98.6', but not 'HR98' or 'BP120/80'
     """
     # Word boundary, one or more digits, optional decimal part, word boundary
-    pattern = r"\b\d+(\.\d+)?\b"
+    pattern = r"\b\d+(?:\.\d+)?\b"
     # Use re.findall to get all matches and count them
     return len(re.findall(pattern, text))
 
 
 def count_bp_patterns(text):
     """
-    Counts structured blood pressure style patterns.
-    Example: '120/80', '130/85', '150/100'
+    Counts structured blood pressure style patterns and ranges.
+    Example: '120/80', '130/85', '150/100', '120-130/90', '170-180/109-112', '120 / 80'
     """
-    # 2-3 digits, slash, 2-3 digits, word boundary
-    pattern = r"\b\d{2,3}/\d{2,3}\b"
+    # 2-3 digits, optional range, slash, allow optional spaces around slash, 2-3 digits, optional range, word boundary
+    pattern = r"\b\d{2,3}(?:-\d{2,3})?\s*/\s*\d{2,3}(?:-\d{2,3})?\b"
     # Use re.findall to get all matches and count them
     return len(re.findall(pattern, text))
 
