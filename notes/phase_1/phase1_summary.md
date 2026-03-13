@@ -333,7 +333,7 @@ Completion of Phase 1 ensures that Phase 2 (rule-based deterministic extraction)
 
 ## Code
 
-`src/data_processing/`:
+`scripts/data_processing/`:
 - `build_corpus.py` — deterministic corpus construction
 - `manual_sample.py` — qualitative structural sampling
 - `quant_profiling.py` — quantitative structural profiling
@@ -344,12 +344,12 @@ Completion of Phase 1 ensures that Phase 2 (rule-based deterministic extraction)
 ## Data Outputs:
 
 `data/processed/`:
-- `icu_corpus.csv`
+- `icu_corpus.csv` — final filtered corpus for profiling and extraction
 `data/sample/`:
-- `manual_sample_30.csv`
-- `profiling_sample_500.csv`
-- `profiling_per_note.csv`
-- `profiling_summary.csv`
+- `manual_sample_30.csv` — 30-note sample for manual inspection
+- `profiling_sample_500.csv` — 500-note sample for quantitative profiling
+- `profiling_per_note.csv` — per-note profiling metrics for 500-note sample
+- `profiling_summary.csv` — summary statistics for profiling metrics
 
 ## Documentation
 
