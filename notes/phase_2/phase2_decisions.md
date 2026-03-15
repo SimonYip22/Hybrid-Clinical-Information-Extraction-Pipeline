@@ -407,7 +407,7 @@ To identify potential headers across ICU notes, we applied two general regex pat
 
 Inspection of the 300 most frequent header candidates revealed that the detected patterns fall into several distinct structural categories. These categories reflect how clinical notes mix narrative documentation, structured monitoring data, and administrative metadata within the same free-text document.
 
-#### Observed Header Categories
+**Observed Header Categories**
 
 Only narrative clinical headers (e.g., SOAP-style sections) are relevant for downstream section detection. Subsections, physiological monitoring fields, laboratory variables, and administrative metadata are captured by the regex but will be ignored in the canonical mapping.
 
@@ -484,7 +484,7 @@ These fields describe metadata about the encounter rather than clinical narrativ
 
 ---
 
-#### Empirical Insight
+**Empirical Insight**
 
 The ranked frequency list of the 300 most common header candidates provided an empirical view of the header distribution across the dataset. Manual inspection revealed that the detected headers fall into several structural categories, but only a subset corresponds to true narrative clinical sections, which are relevant for section detection. Key observations include:
 
@@ -499,7 +499,7 @@ Thus, we can be confident that mapping canonical headers using only the frequent
 
 ---
 
-#### Implication for Section Detection
+**Implication for Section Detection**
 
 The frequency analysis confirms that regex-based detection alone is insufficient, because regex patterns capture both narrative headers and structured non-narrative fields. To ensure accurate section boundaries:
 
@@ -539,21 +539,126 @@ Because these sections introduce substantial blocks of free-text content, they p
 
 ### 4. Section Detection Decisions
 
-All code and logic is from section_detection.py
-
 #### 4.1 Broad Header Detection with Narrow Canonical Storage
 
 Due to earlier header pattern exploration, clinical notes contain a wide range of header-like structures. To ensure reliable structural parsing, the detection strategy intentionally follows a broad detection, narrow storage principle:
 
-1. Regex patterns are designed to detect a wide range of potential headers by using the same regex logic used in header_pattern_exploration.ipynb.
+1. Regex patterns are designed to detect a wide range of potential headers using the same general logic applied in `header_pattern_exploration.ipynb`.
 2. Only the curated set of 13 canonical narrative headers is retained for downstream extraction.
 
 This approach ensures that the algorithm can correctly identify section boundaries while preventing non-narrative fields from being incorrectly interpreted as meaningful narrative sections.
 
 ---
 
-### 5. Implementation Workflow
+#### 4.2 Dual Header Pattern Strategy
 
+The same two regex patterns used for the header exploration notebook were implemented in the section detection pipeline:
+
+1. **Colon-terminated headers**
+
+  Captures lines that begin with a header phrase followed by a colon, optionally containing inline text directly after the header on the same line. This format commonly appears in narrative documentation.
+
+  Examples:
+  - `Plan:`
+  - `Chief Complaint: Chest pain`
+
+2. **Standalone headers**
+
+  Captures lines that consist solely of a header phrase, with or without a trailing colon, to account for headers that appear on their own line.
+
+  Examples:
+  - `Chief Complaint`
+  - `HPI`
+
+Using both patterns ensures that section boundaries are identified reliably regardless of whether a colon is present or whether the header appears inline or on a separate line.
+
+---
+
+#### 4.3 Canonical Header Normalisation
+
+Section headers in clinical notes frequently vary in capitalisation and formatting (e.g., `Assessment`, `ASSESSMENT`, `assessment`). To ensure consistent representation across notes:
+
+- All detected headers are normalised to lowercase before comparison.
+- A predefined canonical header set (`CANONICAL_HEADER_SET`) is stored entirely in lowercase.
+- Extracted sections are stored using the canonical lowercase representation.
+
+This guarantees that the same section is represented consistently across all documents.
+
+
+---
+
+#### 4.4 Structural Boundary Rule
+
+A key design rule is that any detected header acts as a structural boundary, even if the header is not part of the canonical header set. When a header is detected:
+
+1. The current section (if one is active) is finalised and stored.
+2. A new section is started only if the header matches a canonical header.
+
+Non-canonical headers therefore function as section terminators but do not create new stored sections.
+
+This rule is important because ICU notes often contain monitoring variables, laboratory measurements, and administrative fields that resemble headers but do not represent narrative sections. Treating all detected headers as boundaries prevents narrative sections from incorrectly spanning across unrelated structured content.
+
+---
+
+#### 4.5 Inline Header Content Handling
+
+Clinical documentation frequently places section content on the same line as the header.
+
+Example: `Chief Complaint: Chest pain for two days`
+
+- If the algorithm only treated headers as standalone markers, the content following the colon would be lost.
+- To prevent this, any text appearing after the first colon on the header line is captured and added as the first line of the section content.
+- This ensures that narrative information embedded inline with headers is preserved during extraction.
+
+---
+
+### 5. Section Extraction Workflow
+
+The section extraction algorithm implemented in `section_detection.py` processes each clinical note sequentially using a deterministic line-based parsing strategy with two functions `detect_header()` and `extract_sections()`. The workflow is as follows:
+
+1. **Split the clinical note into lines**
+
+  - The note is divided into individual lines to allow structural parsing of potential section headers.
+
+2. **Detect potential headers**
+
+  - Function 1: `detect_header()`
+  - Each line is evaluated against the two header detection regex patterns:
+    - Colon-terminated headers
+    - Standalone headers
+
+3. **Apply structural boundary logic**
+
+  - Function 2: `extract_sections()`
+  - When a header is detected, the currently active section (if any) is finalised and stored.
+
+4. **Determine canonical eligibility**
+
+  - The detected header is normalised to lowercase and checked against the canonical header set.
+    - If the header is canonical, a new section is initiated.
+    - If the header is not canonical, no new section is created.
+
+5. **Accumulate section text**
+
+  - Lines following a canonical header are appended to the section content until another header is encountered.
+    - Leading and trailing whitespace is removed.
+    - Empty lines are ignored.
+
+6. **Capture inline header text**
+
+  - If a header line contains text after a colon, that text is added as the first line of the section content.
+
+7. **Finalise the last section**
+
+  - After processing the entire note, any active section is stored.
+
+8. **Return structured output**
+
+  - The function returns a dictionary where:
+    - **Keys** are canonical section headers (lowercase)
+    - **Values** are the extracted narrative text belonging to each section
+
+This structured representation converts an unstructured clinical note into clearly defined narrative segments that can be used for downstream clinical information extraction and analysis.
 
 ---
 
