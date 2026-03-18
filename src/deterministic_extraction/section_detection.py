@@ -2,26 +2,23 @@
 section_detection.py
 
 Purpose:
-    Detect and extract clinically relevant sections from unstructured clinical notes
-    using deterministic rule-based header detection.
+    Extract clinically relevant sections from unstructured clinical notes
+    using a deterministic, canonical-header-based approach.
 
-    The script identifies potential section headers using regular expressions and
-    extracts text belonging to a predefined set of canonical section headers.
-    Non-canonical headers are still detected so they correctly terminate previous
-    sections, but their contents are not stored.
+    Only predefined canonical headers are recognised. These headers define
+    section boundaries. All other text, including header-like patterns
+    (e.g., subsections, vitals, labs), is treated as normal content.
 
 Workflow:
-    1. Split the clinical note into individual lines.
-    2. Detect potential headers using two regex patterns:
-        - Colon-terminated headers (e.g., "Assessment:")
-        - Standalone headers on their own line (e.g., "Assessment")
-    3. Treat any detected header as a structural boundary that ends the previous section.
-    4. Start a new section only if the detected header matches a predefined canonical header.
-    5. Accumulate text belonging to canonical sections until another header is encountered.
-    6. Return the extracted sections as a dictionary.
+    1. Split the clinical note into lines.
+    2. Identify canonical headers only.
+    3. Start a new section when a canonical header is encountered.
+    4. Accumulate all subsequent text until the next canonical header.
+    5. Include inline content after header colons where present.
+    6. Return extracted sections as a dictionary.
 
-Output: 
-    Dictionary mapping canonical section headers to their extracted text content.
+Output:
+    Dictionary mapping canonical section headers (lowercase) to text.
 
     Example:
     {
@@ -33,18 +30,6 @@ Output:
 
     All section headers are stored in lowercase to ensure consistent canonical representation.
 """
-
-import re
-
-# ---------------------------------------------------------------------
-# HEADER DETECTION PATTERNS
-# ---------------------------------------------------------------------
-
-# 1. Start of line, optional spaces, capture group of letters/numbers/special characters (up to 80 chars), optional spaces, colon, optional spaces
-colon_pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 /()\-'&]{0,80})\s*:\s*")
-# 2. Start of line, optional spaces, capture group of letters/numbers/special characters (up to 80 chars), optional spaces, end of line
-standalone_pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 /()\-\']{1,80})\s*$")
-
 
 # ---------------------------------------------------------------------
 # CANONICAL SECTION DEFINITIONS
@@ -71,163 +56,93 @@ CANONICAL_HEADER_SET = set(CANONICAL_HEADERS)
 
 
 # ---------------------------------------------------------------------
-# HEADER DETECTION FUNCTION
+# CANONICAL HEADER DETECTION FUNCTION
 # ---------------------------------------------------------------------
-def detect_header(line):
+
+def match_canonical_header(line):
     """
-    Detect whether a line represents a section header.
+    Check if a line matches a canonical header.
 
-    A header is identified using two structural patterns:
+    Supports:
+    - "Header:"
+    - "Header"
+    - "Header: content"
 
-    1. Colon-terminated headers
-       Example:
-           "Assessment:"
-           "Chief Complaint: Chest pain"
-
-    2. Standalone headers appearing on their own line
-       Example:
-           "Assessment"
-           "Past Medical History"
-
-    The function returns the detected header text without the trailing colon
-    and with surrounding whitespace removed.
-
-    Parameters
-    ----------
-    line : str
-        A single line from the clinical note.
-
-    Returns
-    -------
-    str or None
-        The detected header text if the line matches a header pattern,
-        otherwise None.
+    Returns:
+        (header_lower, inline_text) or (None, None)
     """
-    # First check for colon-terminated headers within lines or standalone lines
-    match = colon_pattern.match(line)
-    if match:
-        # Return the captured header text, stripped of leading/trailing whitespace
-        return match.group(1).strip()
 
-    # Second check for standalone headers that may not have a colon but are on their own line
-    match = standalone_pattern.match(line)
-    if match:
-        return match.group(1).strip()
+    stripped = line.strip()
 
-    # No header detected
-    return None
+    # Empty line case
+    if not stripped:
+        return None, None # No header, no content
+
+    # Split on first colon (if exists)
+    if ":" in stripped:
+        # Split into header and inline content
+        header_part, rest = stripped.split(":", 1) # Split only on first colon
+        # Clean header for matching
+        header_clean = header_part.strip().lower()
+
+        # Check if cleaned header is in canonical set
+        if header_clean in CANONICAL_HEADER_SET:
+            # Return header and inline content
+            return header_clean, rest.strip()
+
+    # No colon case (standalone header)
+    header_clean = stripped.lower()
+    if header_clean in CANONICAL_HEADER_SET:
+        return header_clean, None
+
+    # Not a canonical header
+    return None, None
 
 
 # ---------------------------------------------------------------------
-# SECTION EXTRACTION LOGIC
+# SECTION EXTRACTION FUNCTION
 # ---------------------------------------------------------------------
 def extract_sections(report):
     """
-    Extract canonical clinical sections from an unstructured clinical note.
+    Extract canonical sections using canonical-only boundaries.
 
-    The function processes the note line-by-line, identifying potential section
-    headers and accumulating text belonging to predefined canonical sections.
-
-    Key rules implemented:
-
-    - Any detected header terminates the previous section.
-    - Only headers present in the canonical header list initiate a stored section.
-    - Non-canonical headers are ignored but still act as structural boundaries.
-    - Text appearing on the same line as a header after the colon is included
-      as the first line of that section.
-    - Empty lines are ignored during text accumulation.
-
-    Parameters
-    ----------
-    report : str
-        Full clinical note text.
-
-    Returns
-    -------
-    dict
-        Dictionary where:
-        - Keys are canonical section headers (lowercase).
-        - Values are the extracted section text.
-
-    Example
-    -------
-    Input note:
-
-        Chief Complaint: Chest pain
-        HPI:
-        Patient reports 2 days of chest discomfort.
-        Assessment:
-        Possible unstable angina.
-
-    Output:
-
-        {
-            "chief complaint": "Chest pain",
-            "hpi": "Patient reports 2 days of chest discomfort.",
-            "assessment": "Possible unstable angina."
-        }
-
-    Notes
-    -----
-    All canonical headers are stored in lowercase to allow case-insensitive
-    matching against detected headers.
+    Rules:
+    - Only canonical headers define section boundaries
+    - Non-canonical header-like text is treated as normal content
+    - Inline content after header colon is included
     """
 
-    # Initialise an empty dictionary to hold section headers and their corresponding text
     sections = {}
-    # Initialise the current header to None, indicating that we are not currently within a section
     current_header = None
-    # Initialise the buffer to hold lines of text for the current section
     buffer = []
 
-    # Split the report into lines for processing
-    lines = report.split("\n")
+    for line in report.split("\n"):
 
-    # Iterate through each line in the report
-    for line in lines:
-        # Check if the line matches the header pattern
-        header = detect_header(line)
+        header, inline_text = match_canonical_header(line)
 
-        # If the line is a header, we need to check if its a canonical header or not
         if header:
-
-            # Save the previous section if we are currently in one, since we have reached a new header, and need to check whether it is canonical before we can start a new section
+            # Save previous section
             if current_header is not None:
                 sections[current_header] = " ".join(buffer).strip()
 
-            # Reset buffer for new section, only fill if canonical header
+            # Start new section
+            current_header = header
             buffer = []
 
-            # Convert detected header to lowercase for comparison against the canonical header set
-            header_lower = header.lower()
-
-            # Start new section only if canonical
-            if header_lower in CANONICAL_HEADER_SET:
-                # Set current header to canonical header match
-                current_header = header_lower
-            else:
-                # Set back to None if the detected header is not canonical
-                current_header = None
-
-            if ":" in line:
-                # If header is within a line, capture text after header colon (first colon) and strip
-                after_colon = line.split(":",1)[1].strip()
-                # Only add to buffer if there is text after the header colon, since if there is text it should be part of the section content
-                if after_colon and current_header:
-                    buffer.append(after_colon)
+            # Add inline text if present
+            if inline_text:
+                buffer.append(inline_text)
 
             continue
 
-        # If the line isnt a header and we are already in a section, append the line to the buffer
+        # Accumulate content
         if current_header is not None:
             clean = line.strip()
-            # Add only non-empty lines to buffer
             if clean:
                 buffer.append(clean)
 
-    # After entire report has been checked, save final the section that is still open
+    # Save final section
     if current_header is not None:
         sections[current_header] = " ".join(buffer).strip()
 
-    # Return the dictionary of extracted sections, where keys are canonical headers and values are the corresponding section text
     return sections
