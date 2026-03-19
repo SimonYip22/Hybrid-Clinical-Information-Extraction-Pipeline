@@ -18,12 +18,12 @@
 
 ### 2. Entity Types 
 
-Extraction in Phase 2 is strictly limited to four entity types:
+Extraction in Phase 2 is strictly limited to four entity types which seperate clinical reasoning components and provide a clear, clinically relevant structure for downstream analysis:
 
-- **SYMPTOM**  
-- **INTERVENTION**  
-- **COMPLICATION**  
-- **VITAL_MENTION**
+- **SYMPTOM** → subjective
+- **INTERVENTION** → actions
+- **COMPLICATION** → pathology
+- **VITAL_MENTION**  → quantitative signal
 
 These four were chosen because they capture the core clinically relevant information commonly reported in ICU progress notes, balancing scope control and portfolio complementarity with other ongoing projects. Limiting to these avoids over-complexity, prevents scope creep, and ensures high precision in rule-based extraction.
 
@@ -829,25 +829,88 @@ A sample of 30 ICU notes was evaluated.
 
 ### 1. Objective
 
-- Rule based extraction applies deterministic pattern rules to identify candidate entities belonging to the predefined schema (SYMPTOM, INTERVENTION, COMPLICATION, VITAL_MENTION) within the extracted sections of clinical notes.
-- We are not building a complete extractor, we are building a controlled, determinsitic reference system that produces stable outputs for downstream transformer validation and modelling in Phases 3 and 4.
-- The rules are designed to be high precision, with a focus on capturing prototypical examples of each entity type, rather than exhaustive coverage. 
-- This becomes a baseline validation anchor and a comparison faremwork for later models.
-- We need 4 entitiy types that are extractable, outputs are correct, span-aligned and determinstic, and rules cover common ICU expressions, not edge cases
-- we are not trying to capture every possible way to express a symptom, intervention, complication or vital mention, nor solve full clinical language variability, we are trying to capture common, prototypical examples of each entity type that are expressed in a way that is amenable to deterministic rule-based extraction.
+Rule-based extraction applies deterministic pattern rules to identify entities belonging to the predefined schema (**SYMPTOM, INTERVENTION, COMPLICATION, VITAL_MENTION**) within sectioned clinical notes.
 
-You build:
-- deterministic extraction (rules)
-- high-precision structured outputs (your “ground truth proxy”)
+This component is not intended to be a complete clinical NLP system. Instead, it serves as a controlled, deterministic reference system that produces stable, reproducible, and span-aligned outputs for downstream validation.
+
+The system is defined by four core properties:
+- Deterministic: identical input produces identical output  
+- High precision: extracted entities are expected to be correct  
+- Span-aligned: all entities map to original character offsets  
+- Schema-constrained: limited strictly to the four predefined entity types  
+
+Rule design prioritises prototypical ICU expressions and clear lexical patterns, favouring precision over recall. It does not attempt to capture all linguistic variation or achieve exhaustive coverage. Instead, it extracts representative, high-confidence instances of each entity type, forming a reliable baseline for comparison with transformer-based methods.
 
 ---
 
 ### 2. Rule Based Extraction Decision
 
-From the Phase 2 schema operationalisation and entity definition, we have defined four entity types to extract: SYMPTOM, INTERVENTION, COMPLICATION, and VITAL_MENTION.
-- Each entity type has specific inclusion and exclusion criteria, negation handling rules, and trigger patterns based on common clinical expressions observed in ICU notes.
-- The rule-based extraction engine will apply deterministic pattern matching to identify candidate entities within the extracted sections of the notes, adhering strictly to the defined schema and operational decisions for each entity type.
+Rule-based extraction is grounded in the Phase 2 schema operationalisation, which defines four entity types to extract:
 
-This scope allows us to not overextend, and waste our time, and ensures that the extracted entities are clinically meaningful, span-aligned, and suitable for downstream transformer validation in Phase 3.
+- **SYMPTOM**
+- **INTERVENTION**
+- **COMPLICATION**
+- **VITAL_MENTION**
+
+Each entity is governed by explicit inclusion/exclusion criteria, negation cues, and prototypical trigger patterns. The extraction engine applies deterministic pattern matching to identify candidate entities within sectioned note text, strictly adhering to these predefined definitions.
+
+Rule development was guided by targeted inspection of a small sample of ICU notes from section detection validation (`validate_section_detection.py`). High-frequency, clinically meaningful patterns were identified and iteratively translated into deterministic rules, prioritising precision and reproducibility over exhaustive coverage.
+
+This constrained approach prevents scope creep, ensures span-aligned and clinically coherent outputs, and provides a stable foundation for downstream transformer validation in Phase 3.
 
 ---
+
+Rule-Based Symptom Extraction
+	•	A rule-based approach was developed to extract symptom entities from clinical notes.
+	•	Initial rules were derived from observed linguistic patterns (e.g. complaint expressions, descriptive phrases).
+	•	The system was iteratively refined through evaluation on a validation subset of notes.
+	•	Rules were designed to prioritise:
+	•	high recall through broad pattern matching
+	•	precision through exclusion filters and negation handling
+	•	Development was stopped when additional rules produced minimal improvement in extraction performance.
+
+  The approach focuses on pattern generalisation rather than exhaustive vocabulary enumeration, improving scalability across unseen data.
+
+  we are starting with general ICU convention, and then light validation on notes, we do not iteratively fit rules to the dataset, as this would lead to overfitting and loss of generalisability. this is theory driven rule design with light validation, not data-driven rule fitting.
+
+---
+
+Layer
+What it adds
+Section filtering
+removes irrelevant context
+Concept grouping
+maps many phrases → one clinical meaning
+Negation handling
+prevents false positives
+Context rules
+e.g. ROS vs exam vs plan
+Pipeline integration
+feeds downstream ML
+
+Is it okay that you only have ~10 symptoms?
+
+Yes — if they are chosen correctly.
+
+You are not building:
+	•	a clinical ontology
+	•	a full medical NER system
+
+You are building:
+	•	a demonstration of pipeline design + engineering judgment
+
+What matters is NOT coverage
+
+It is:
+	•	clarity of logic
+	•	correctness of extraction
+	•	explainability
+	•	integration with ML
+
+You want:
+
+“representative coverage of common ICU symptom patterns”
+
+NOT:
+
+“complete medical coverage”
