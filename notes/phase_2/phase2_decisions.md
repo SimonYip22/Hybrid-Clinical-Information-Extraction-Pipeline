@@ -538,38 +538,43 @@ Because these sections introduce substantial blocks of free-text content, they p
 
 ### 4. Section Detection Decisions
 
-#### 4.1 Broad Header Detection with Narrow Canonical Storage
+#### 4.1 Canonical-Only Header Detection
 
-Due to earlier header pattern exploration, clinical notes contain a wide range of header-like structures. To ensure reliable structural parsing, the detection strategy intentionally follows a broad detection, narrow storage principle:
+Based on empirical validation and observed failure modes, the section detection strategy adopts a canonical-only detection approach:
 
-1. Regex patterns are designed to detect a wide range of potential headers using the same general logic applied in `header_pattern_exploration.ipynb`.
-2. Only the curated set of 13 canonical narrative headers is retained for downstream extraction.
+1. Only headers present in the predefined canonical header set are detected.
+2. No broad regex-based detection of non-canonical headers is performed.
+3. Section boundaries are defined exclusively by canonical headers.
 
-This approach ensures that the algorithm can correctly identify section boundaries while preventing non-narrative fields from being incorrectly interpreted as meaningful narrative sections.
+This ensures that only clinically meaningful narrative sections are used to structure the document, avoiding interference from subsection headers, monitoring variables, or administrative fields.
 
 ---
 
-#### 4.2 Dual Header Pattern Strategy
+#### 4.2 Simplified Header Matching Strategy
 
-The same two regex patterns used for the header exploration notebook were implemented in the section detection pipeline:
+Header detection is implemented using a deterministic string-based approach rather than general regex pattern matching.
 
-1. **Colon-terminated headers**
+The function `match_canonical_header()` supports two formats:
 
-  Captures lines that begin with a header phrase followed by a colon, optionally containing inline text directly after the header on the same line. This format commonly appears in narrative documentation.
+1. **Colon-terminated headers with optional inline content**
 
-  Examples:
-  - `Plan:`
-  - `Chief Complaint: Chest pain`
+   - Matches lines where a canonical header appears before a colon.
+   - Any text after the first colon is treated as inline section content.
+
+   Examples:
+   - `Plan:`
+   - `Chief Complaint: Chest pain`
 
 2. **Standalone headers**
 
-  Captures lines that consist solely of a header phrase, with or without a trailing colon, to account for headers that appear on their own line.
+   - Matches lines that exactly correspond to a canonical header (case-insensitive).
+   - No inline content is present.
 
-  Examples:
-  - `Chief Complaint`
-  - `HPI`
+   Examples:
+   - `Chief Complaint`
+   - `HPI`
 
-Using both patterns ensures that section boundaries are identified reliably regardless of whether a colon is present or whether the header appears inline or on a separate line.
+This approach ensures precise and deterministic header recognition while avoiding false positives from non-canonical patterns.
 
 ---
 
@@ -583,19 +588,23 @@ Section headers in clinical notes frequently vary in capitalisation and formatti
 
 This guarantees that the same section is represented consistently across all documents.
 
-
 ---
 
-#### 4.4 Structural Boundary Rule
+#### 4.4 Structural Boundary Rule (Canonical-Only)
 
-A key design rule is that any detected header acts as a structural boundary, even if the header is not part of the canonical header set. When a header is detected:
+Section boundaries are defined exclusively by canonical headers:
 
-1. The current section (if one is active) is finalised and stored.
-2. A new section is started only if the header matches a canonical header.
+1. When a canonical header is detected:
+   - The current section (if one is active) is finalised and stored.
+   - A new section is started.
 
-Non-canonical headers therefore function as section terminators but do not create new stored sections.
+2. If a line does not match a canonical header:
+   - It is treated as normal content.
+   - It does not terminate the current section.
 
-This rule is important because ICU notes often contain monitoring variables, laboratory measurements, and administrative fields that resemble headers but do not represent narrative sections. Treating all detected headers as boundaries prevents narrative sections from incorrectly spanning across unrelated structured content.
+Non-canonical header-like patterns (e.g., `HR`, `Cardiovascular`, `HEENT`) are therefore treated as plain text and retained within the current section.
+
+This prevents premature section termination and preserves full narrative continuity.
 
 ---
 
@@ -605,9 +614,11 @@ Clinical documentation frequently places section content on the same line as the
 
 Example: `Chief Complaint: Chest pain for two days`
 
-- If the algorithm only treated headers as standalone markers, the content following the colon would be lost.
-- To prevent this, any text appearing after the first colon on the header line is captured and added as the first line of the section content.
-- This ensures that narrative information embedded inline with headers is preserved during extraction.
+- The line is split on the first colon.
+- The portion after the colon is treated as inline content.
+- This content is added as the first entry in the section buffer.
+
+This ensures that no clinically relevant information is lost during extraction.
 
 ---
 
@@ -712,51 +723,68 @@ This establishes a reliable foundation for downstream analysis and modelling.
 
 ### 6. Section Extraction Workflow
 
-The section extraction algorithm implemented in `section_detection.py` processes each clinical note sequentially using a deterministic line-based parsing strategy with two functions `detect_header()` and `extract_sections()`. The workflow is as follows:
+The section extraction algorithm implemented in `section_detection.py` processes each clinical note sequentially using a deterministic line-based parsing strategy with two functions: `match_canonical_header()` and `extract_sections()`.
+
+The workflow is as follows:
 
 1. **Split the clinical note into lines**
 
-  - The note is divided into individual lines to allow structural parsing of potential section headers.
+   - The note is divided into individual lines using newline separation.
 
-2. **Detect potential headers**
+2. **Detect canonical headers**
 
-  - Function 1: `detect_header()`
-  - Each line is evaluated against the two header detection regex patterns:
-    - Colon-terminated headers
-    - Standalone headers
+   - Function: `match_canonical_header()`
+   - Each line is checked for an exact match against the canonical header set.
+   - Supports:
+     - Colon-terminated headers with optional inline content
+     - Standalone headers
 
-3. **Apply structural boundary logic**
+3. **Handle canonical header detection**
 
-  - Function 2: `extract_sections()`
-  - When a header is detected, the currently active section (if any) is finalised and stored.
+   - If a canonical header is detected:
+     - The current section (if active) is finalised:
+       - Buffered lines are joined into a single string (`content`)
+       - If the current header already exists in the dictionary:
+         - The new content is appended using a space separator
+       - Otherwise:
+         - A new dictionary entry is created
+     - A new section is initialised
+     - The buffer is reset
 
-4. **Determine canonical eligibility**
+4. **Capture inline header content**
 
-  - The detected header is normalised to lowercase and checked against the canonical header set.
-    - If the header is canonical, a new section is initiated.
-    - If the header is not canonical, no new section is created.
+   - If inline text exists after the colon:
+     - It is added immediately to the buffer as the first line of the new section
 
-5. **Accumulate section text**
+5. **Accumulate section content**
 
-  - Lines following a canonical header are appended to the section content until another header is encountered.
-    - Leading and trailing whitespace is removed.
-    - Empty lines are ignored.
+   - If no header is detected:
+     - The line is treated as content
+     - Leading/trailing whitespace is stripped
+     - Empty lines are ignored
+     - Non-empty lines are appended to the buffer
 
-6. **Capture inline header text**
+6. **Repeat until end of note**
 
-  - If a header line contains text after a colon, that text is added as the first line of the section content.
+   - Continue processing line-by-line, maintaining the current section context
 
 7. **Finalise the last section**
 
-  - After processing the entire note, any active section is stored.
+   - After processing all lines:
+     - Any remaining buffered content is finalised:
+       - Joined into a single string (`content`)
+       - If the current header already exists in the dictionary:
+         - The content is appended using a space separator
+       - Otherwise:
+         - A new dictionary entry is created
 
 8. **Return structured output**
 
-  - The function returns a dictionary where:
-    - **Keys** are canonical section headers (lowercase)
-    - **Values** are the extracted narrative text belonging to each section
+   - Output is a dictionary:
+     - **Keys**: canonical headers (lowercase)
+     - **Values**: concatenated section text
 
-This structured representation converts an unstructured clinical note into clearly defined narrative segments that can be used for downstream clinical information extraction and analysis.
+This workflow reflects a strictly deterministic, canonical-boundary approach that prioritises structural robustness and preservation of narrative content.
 
 ---
 
@@ -764,8 +792,62 @@ This structured representation converts an unstructured clinical note into clear
 
 #### 7.1 Overview
 
-- Validation implemented via `validate_section_detection.py`, which applies the section extraction function to a random sample of 10 ICU notes, and compares original vs outputs.
-- A random sample of 10 ICU clinical notes was manually inspected to evaluate the effectiveness of the Phase 2 section extraction function. 
-- The validation focused on confirming that the detected sections correspond to meaningful narrative blocks, that section boundaries are correctly identified, and that non-narrative fields are appropriately ignored.
+Validation was performed using `validate_section_detection.py`, which applies the section extraction function to a reproducible random sample of ICU clinical notes.
+
+The validation combines:
+- Qualitative inspection (manual review of extracted sections)
+- Quantitative diagnostics (basic statistics on extraction behaviour): 
+
+A sample of 30 ICU notes was evaluated.
+
+---
+
+#### 7.2 Key Findings
+
+- **Notes with no detected sections**: 11 / 30 (≈37%)  
+  - Notes without any canonical headers correctly resulted in zero extractions.  
+  - This is consistent with the intended behaviour: zero extraction only occurs when no relevant headers are present.
+
+- **Empty sections detected**: 13  
+  - Certain canonical headers were retained even when no text followed them, as required by the extraction rules.
+
+- **Extraction behaviour matches expectations**:
+  - Canonical headers are correctly retained, even if empty.
+  - Notes with no canonical headers yield zero extraction, which is appropriate.
+  - All extracted sections align with their source content; there are no missing headers where they exist.
+
+---
+
+#### 7.3 Interpretation
+
+- The observed zero-extraction rate (~37%) reflects natural variability in ICU notes and does not indicate a failure of the extraction script.
+- This validation confirms that the section extraction is accurate, complete, and consistent with the defined canonical headers.
+
+---
+
+## Rule Based Extraction
+
+### 1. Objective
+
+- Rule based extraction applies deterministic pattern rules to identify candidate entities belonging to the predefined schema (SYMPTOM, INTERVENTION, COMPLICATION, VITAL_MENTION) within the extracted sections of clinical notes.
+- We are not building a complete extractor, we are building a controlled, determinsitic reference system that produces stable outputs for downstream transformer validation and modelling in Phases 3 and 4.
+- The rules are designed to be high precision, with a focus on capturing prototypical examples of each entity type, rather than exhaustive coverage. 
+- This becomes a baseline validation anchor and a comparison faremwork for later models.
+- We need 4 entitiy types that are extractable, outputs are correct, span-aligned and determinstic, and rules cover common ICU expressions, not edge cases
+- we are not trying to capture every possible way to express a symptom, intervention, complication or vital mention, nor solve full clinical language variability, we are trying to capture common, prototypical examples of each entity type that are expressed in a way that is amenable to deterministic rule-based extraction.
+
+You build:
+- deterministic extraction (rules)
+- high-precision structured outputs (your “ground truth proxy”)
+
+---
+
+### 2. Rule Based Extraction Decision
+
+From the Phase 2 schema operationalisation and entity definition, we have defined four entity types to extract: SYMPTOM, INTERVENTION, COMPLICATION, and VITAL_MENTION.
+- Each entity type has specific inclusion and exclusion criteria, negation handling rules, and trigger patterns based on common clinical expressions observed in ICU notes.
+- The rule-based extraction engine will apply deterministic pattern matching to identify candidate entities within the extracted sections of the notes, adhering strictly to the defined schema and operational decisions for each entity type.
+
+This scope allows us to not overextend, and waste our time, and ensures that the extracted entities are clinically meaningful, span-aligned, and suitable for downstream transformer validation in Phase 3.
 
 ---
