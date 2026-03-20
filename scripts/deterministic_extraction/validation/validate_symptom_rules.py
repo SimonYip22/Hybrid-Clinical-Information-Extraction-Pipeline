@@ -1,112 +1,173 @@
 """
+validate_symptom_rules.py
+
+Purpose:
+    Evaluate symptom extraction performance:
+    - Section coverage
+    - Extraction yield
+    - Concept distribution
+    - Negation behaviour
+
+Usage:
     export PYTHONPATH=$(pwd)/src
     python3 scripts/deterministic_extraction/validation/validate_symptom_rules.py
 """
-# ---------------------------------------------------------------------
-# IMPORTS & CONFIGURATION
-# ---------------------------------------------------------------------
 
 import pandas as pd
 import random
 from collections import Counter
 
-from deterministic_extraction.section_detection import extract_sections
-from deterministic_extraction.extraction_rules.symptom_rules import extract_symptoms
+from deterministic_extraction.section_extraction import extract_sections
+from deterministic_extraction.extraction_rules.symptom_rules import extract_symptoms, TARGET_SYMPTOM_SECTIONS
 
-# Configuration
+# ---------------------------------------------------------------------
+# CONFIG
+# ---------------------------------------------------------------------
+
 CORPUS_PATH = "data/processed/icu_corpus.csv"
 TEXT_COLUMN = "TEXT"
 SAMPLE_SIZE = 30
 RANDOM_SEED = 42
 
-# Sections to prioritise (optional but recommended)
-TARGET_SECTIONS = [
-    "chief complaint",
-    "hpi",
-    "assessment",
-    "physical examination",
-    "review of systems"
-]
-
-# ---------------------------------------------------------------------
-# LOAD DATA
-# ---------------------------------------------------------------------
-
 df = pd.read_csv(CORPUS_PATH)
-notes = df[TEXT_COLUMN].dropna().tolist()
+notes = df.to_dict(orient="records")
 
 random.seed(RANDOM_SEED)
 sample = random.sample(notes, SAMPLE_SIZE)
 
-# Track frequency (useful later)
-symptom_counter = Counter()
+# ---------------------------------------------------------------------
+# TRACKERS
+# ---------------------------------------------------------------------
+
+total_notes = len(sample)
+
+notes_with_any_sections = 0
+notes_with_target_sections = 0
+notes_with_no_target_sections = 0
+notes_with_target_but_no_symptoms = 0
+
+total_symptoms = 0
+
+concept_counter = Counter()
+negation_counter = Counter()
 
 # ---------------------------------------------------------------------
 # VALIDATION LOOP
 # ---------------------------------------------------------------------
 
 for i, note in enumerate(sample):
+    text = note[TEXT_COLUMN]
 
-    sections = extract_sections(note)
+    note_id = note.get("NOTE_ID", f"note_{i}")
+    subject_id = note.get("SUBJECT_ID", "")
+    hadm_id = note.get("HADM_ID", "")
+    icustay_id = note.get("ICUSTAY_ID", "")
 
-    # -----------------------------------------------------------------
-    # PRINT ORIGINAL NOTE
-    # -----------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print(f"NOTE {i+1} — ORIGINAL")
-    print("=" * 80)
-    print(note)
+    sections = extract_sections(text)
 
-    # -----------------------------------------------------------------
-    # PRINT SECTIONS
-    # -----------------------------------------------------------------
+    if sections:
+        notes_with_any_sections += 1
+
+    # Filter to target sections
+    target_sections = {
+        k: v for k, v in sections.items()
+        if k.lower() in TARGET_SYMPTOM_SECTIONS
+    }
+
     print("\n" + "-" * 80)
-    print(f"NOTE {i+1} — EXTRACTED SECTIONS")
+    print(f"NOTE {i+1}")
     print("-" * 80)
 
-    for section, content in sections.items():
+    if not target_sections:
+        notes_with_no_target_sections += 1
+        print("No target sections found.")
+        continue
+
+    notes_with_target_sections += 1
+
+    print("\nSECTIONS:")
+    for section, content in target_sections.items():
         print(f"\n[{section.upper()}]")
-        print(content[:500])  # truncate long sections for readability
+        print(content[:300])
 
-    # -----------------------------------------------------------------
-    # SYMPTOM EXTRACTION (FOCUSED SECTIONS)
-    # -----------------------------------------------------------------
-    extracted_symptoms = []
+    # ----------------------------------------------------------
+    # Extraction
+    # ----------------------------------------------------------
 
-    for section, content in sections.items():
-        if section.lower() in TARGET_SECTIONS:
-            symptoms = extract_symptoms(content)
-            extracted_symptoms.extend(symptoms)
+    extracted = []
 
-    # Deduplicate
-    extracted_symptoms = list(set(extracted_symptoms))
+    for section, content in target_sections.items():
+        ents = extract_symptoms(
+            note_id,
+            subject_id,
+            hadm_id,
+            icustay_id,
+            section,
+            content
+        )
+        extracted.extend(ents)
 
-    # Update frequency counter
-    symptom_counter.update(extracted_symptoms)
+    if not extracted:
+        notes_with_target_but_no_symptoms += 1
 
-    # -----------------------------------------------------------------
-    # PRINT SYMPTOMS
-    # -----------------------------------------------------------------
-    print("\n" + "-" * 80)
-    print(f"NOTE {i+1} — EXTRACTED SYMPTOMS")
-    print("-" * 80)
+    # ----------------------------------------------------------
+    # Tracking
+    # ----------------------------------------------------------
 
-    if extracted_symptoms:
-        for s in extracted_symptoms:
-            print(f"- {s}")
+    for e in extracted:
+        concept = e["entity_text"].lower()  # TEMP until concept added
+
+        concept_counter.update([concept])
+        negation_counter.update([(concept, e["negated"])])
+        total_symptoms += 1
+
+    # ----------------------------------------------------------
+    # Print
+    # ----------------------------------------------------------
+
+    print("\nSYMPTOMS:")
+    if extracted:
+        for e in extracted:
+            print(f'- {e["entity_text"]} | negated={e["negated"]} | section={e["section"]}')
     else:
         print("No symptoms extracted")
 
-    # Pause between notes
-    input("\nPress Enter for next note...")
-
 # ---------------------------------------------------------------------
-# SUMMARY (VERY IMPORTANT)
+# SUMMARY
 # ---------------------------------------------------------------------
 
 print("\n" + "=" * 80)
-print("SUMMARY — TOP EXTRACTED SYMPTOMS")
+print("SECTION COVERAGE")
 print("=" * 80)
 
-for symptom, count in symptom_counter.most_common(20):
-    print(f"{symptom}: {count}")
+print(f"Total notes: {total_notes}")
+print(f"Notes with ANY sections: {notes_with_any_sections}")
+print(f"Notes with TARGET sections: {notes_with_target_sections}")
+print(f"Notes WITHOUT target sections: {notes_with_no_target_sections}")
+
+print("\n" + "=" * 80)
+print("EXTRACTION PERFORMANCE")
+print("=" * 80)
+
+if notes_with_target_sections > 0:
+    print(f"Notes with NO symptoms (given sections): {notes_with_target_but_no_symptoms} / {notes_with_target_sections} "
+          f"({notes_with_target_but_no_symptoms / notes_with_target_sections * 100:.1f}%)")
+
+print(f"Total symptoms extracted: {total_symptoms}")
+
+if notes_with_target_sections > 0:
+    print(f"Average per note: {total_symptoms / notes_with_target_sections:.2f}")
+
+print("\n" + "=" * 80)
+print("TOP SURFACE FORMS (debug)")
+print("=" * 80)
+
+for k, v in concept_counter.most_common(20):
+    print(f"{k}: {v}")
+
+print("\n" + "=" * 80)
+print("NEGATION BEHAVIOUR")
+print("=" * 80)
+
+for (concept, neg), count in negation_counter.items():
+    print(f"{concept} | negated={neg}: {count}")
