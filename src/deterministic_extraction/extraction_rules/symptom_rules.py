@@ -98,6 +98,9 @@ SYMPTOM_PATTERNS = {
     "weakness": [
         r"\b(generalised weakness|weakness)\b"
     ],
+    "seizure": [
+        r"\b(epileptic seizure|seizure|seizures|seizing|convulsion|convulsions|seizure-like activity|szr)\b"
+    ],
     "anorexia": [
         r"\b(anorexia|loss of appetite|decreased appetite|poor appetite|poor intake)\b"
     ],
@@ -196,6 +199,7 @@ def extract_symptoms(note_id: str, subject_id: str, hadm_id: str, icustay_id: st
                         "hadm_id": hadm_id,
                         "icustay_id": icustay_id,
                         "entity_text": span_text,
+                        "concept": concept,
                         "entity_type": "SYMPTOM",
                         "char_start": start_idx,
                         "char_end": end_idx,
