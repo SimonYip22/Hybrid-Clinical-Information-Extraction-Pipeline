@@ -2,15 +2,41 @@
 validate_symptom_rules.py
 
 Purpose:
-    Evaluate symptom extraction performance:
-    - Section coverage
-    - Extraction yield
-    - Concept distribution
-    - Negation behaviour
+    Evaluate the performance of the rule-based SYMPTOM extraction pipeline
+    on a sample of ICU clinical notes. This validation script provides
+    both quantitative and qualitative inspection to ensure that the
+    extraction behaves as designed.
 
 Usage:
     export PYTHONPATH=$(pwd)/src
     python3 scripts/deterministic_extraction/validation/validate_symptom_rules.py
+
+Workflow:
+    1. Load the ICU corpus 
+    2. Randomly sample 30 notes for validation
+    3. Extract sections from each note using `extract_sections`
+    4. Filter sections to target symptom-relevant sections
+    5. For each section:
+        a. Split into sentences
+        b. Detect symptoms using `extract_symptoms`
+        c. Apply simple negation logic
+        d. Deduplicate concepts per sentence
+    6. Track metrics:
+        - Notes with any sections
+        - Notes with target sections
+        - Notes with no target sections
+        - Notes with target sections but no symptoms
+        - Total symptoms extracted
+        - Concept counts
+        - Negation counts
+    7. Print outputs per note:
+        - Sections (truncated)
+        - Extracted symptom entities with negation, concept, and section
+    8. Summarise:
+        - Section coverage
+        - Extraction performance (total, average)
+        - Top concepts
+        - Negation behaviour
 """
 
 import pandas as pd
@@ -18,7 +44,10 @@ import random
 from collections import Counter
 
 from deterministic_extraction.section_extraction import extract_sections
-from deterministic_extraction.extraction_rules.symptom_rules import extract_symptoms, TARGET_SYMPTOM_SECTIONS
+from deterministic_extraction.extraction_rules.symptom_rules import (
+    extract_symptoms,
+    TARGET_SYMPTOM_SECTIONS
+)
 
 # ---------------------------------------------------------------------
 # CONFIG
@@ -85,6 +114,12 @@ for i, note in enumerate(sample):
 
     notes_with_target_sections += 1
 
+    
+
+    # ----------------------------------------------------------
+    # Show sections (truncated)
+    # ----------------------------------------------------------
+
     print("\nSECTIONS:")
     for section, content in target_sections.items():
         print(f"\n[{section.upper()}]")
@@ -115,20 +150,28 @@ for i, note in enumerate(sample):
     # ----------------------------------------------------------
 
     for e in extracted:
-        concept = e["entity_text"].lower()  # TEMP until concept added
+        concept = e["concept"]
 
         concept_counter.update([concept])
-        negation_counter.update([(concept, e["negated"])])
+        negation_counter.update([e["negated"]])
         total_symptoms += 1
 
     # ----------------------------------------------------------
-    # Print
+    # Print extracted entities
     # ----------------------------------------------------------
 
     print("\nSYMPTOMS:")
+
     if extracted:
+        print(f"Extracted {len(extracted)} symptoms\n")
+
         for e in extracted:
-            print(f'- {e["entity_text"]} | negated={e["negated"]} | section={e["section"]}')
+            print(
+                f'- {e["entity_text"]} '
+                f'| concept={e["concept"]} '
+                f'| negated={e["negated"]} '
+                f'| section={e["section"]}'
+            )
     else:
         print("No symptoms extracted")
 
@@ -150,8 +193,11 @@ print("EXTRACTION PERFORMANCE")
 print("=" * 80)
 
 if notes_with_target_sections > 0:
-    print(f"Notes with NO symptoms (given sections): {notes_with_target_but_no_symptoms} / {notes_with_target_sections} "
-          f"({notes_with_target_but_no_symptoms / notes_with_target_sections * 100:.1f}%)")
+    print(
+        f"Notes with NO symptoms (given sections): "
+        f"{notes_with_target_but_no_symptoms} / {notes_with_target_sections} "
+        f"({notes_with_target_but_no_symptoms / notes_with_target_sections * 100:.1f}%)"
+    )
 
 print(f"Total symptoms extracted: {total_symptoms}")
 
@@ -159,15 +205,22 @@ if notes_with_target_sections > 0:
     print(f"Average per note: {total_symptoms / notes_with_target_sections:.2f}")
 
 print("\n" + "=" * 80)
-print("TOP SURFACE FORMS (debug)")
+print("TOP CONCEPTS")
 print("=" * 80)
 
-for k, v in concept_counter.most_common(20):
-    print(f"{k}: {v}")
+for concept, count in concept_counter.most_common(20):
+    print(f"{concept}: {count}")
 
 print("\n" + "=" * 80)
 print("NEGATION BEHAVIOUR")
 print("=" * 80)
 
-for (concept, neg), count in negation_counter.items():
-    print(f"{concept} | negated={neg}: {count}")
+total_neg = negation_counter[True]
+total_pos = negation_counter[False]
+total = total_neg + total_pos
+
+if total > 0:
+    print(f"Negated: {total_neg} ({total_neg / total * 100:.1f}%)")
+    print(f"Not negated: {total_pos} ({total_pos / total * 100:.1f}%)")
+else:
+    print("No symptoms extracted → no negation statistics available")
