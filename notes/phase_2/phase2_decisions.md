@@ -688,24 +688,113 @@ Validation was implemented via `validate_sentence_segmentation.py`, which applie
 **Key Principles**
 - Deterministic extraction (rule-based candidate generation)
 - Contextual validation (transformer-based filtering)
-- Prioritise precision over recall
+- Prioritise precision in final validated outputs; rules generate controlled candidate sets with sufficient recall
 - Maintain auditability and traceability through structured outputs
 
 ---
 
 ### 2. System Overview (High-Level Architecture)
 
-**Pipeline Structure**
+#### 2.1 Pipeline Structure and Design Philosophy
+
+**Pipeline Overview**
 1. Section-aware preprocessing and segmentation  
 2. Rule-based candidate generation (deterministic extraction)  
 3. Transformer-based validation (contextual classification)  
 
 **Core Design Philosophy**
-- Rules generate candidates, not final truths  
-- The transformer performs contextual classification of candidate validity  
-- The system is explicitly designed as a hybrid pipeline, separating extraction from interpretation  
 
-**Entity-wise Responsibility Split**
+The system is explicitly designed as a hybrid pipeline, separating candidate generation from contextual interpretation.
+
+- **Rule-based extraction**
+  - Defines the search space (what can be extracted)
+  - Generates candidate spans, not final truths
+  - Ensures deterministic, auditable, and schema-constrained outputs
+  - Behaviour varies by entity type:
+    - `SYMPTOM`: high-precision extraction  
+    - `INTERVENTION`: moderate-precision, recall-aware candidate generation  
+    - `COMPLICATION`: high-recall candidate generation  
+
+- **Transformer-based validation**
+  - Defines the decision space (what is clinically valid)
+  - Performs contextual classification of candidate validity  
+  - Resolves ambiguity in:
+    - Intent (performed vs planned)
+    - Temporality (acute vs historical)
+    - Context (current vs background)
+  - Does not perform extraction, only validation
+
+**Separation of Responsibilities**
+
+- Rules → *where to look* (bounded, deterministic candidate generation)  
+- Transformer → *what it means* (contextual clinical interpretation)  
+
+This separation ensures:
+- Deterministic and reproducible extraction  
+- Strict adherence to schema boundaries  
+- Clear separation of failure modes:
+  - Rule failures → recall limitations (missed candidates)  
+  - Transformer failures → precision limitations (misclassification)  
+
+**Key Design Principle**
+
+The system is not uniformly precision-first at the rule level (like traditional rule-based NLP), it is designed to produce high-precision final outputs (hybrid pipeline)
+
+- Precision is enforced at the system level, not necessarily at the extraction stage  
+- For entities with high linguistic variability (`INTERVENTION`, `COMPLICATION`):
+  - Broader candidate generation is required  
+  - Precision is recovered downstream via transformer validation  
+
+---
+
+#### 2.2 Rationale for Hybrid Approach
+
+A fully model-based extraction approach was considered but rejected in favour of a hybrid architecture.
+
+**Key limitations of transformer-based extraction**
+
+- **Loss of deterministic control**
+  - No guaranteed or reproducible coverage
+  - Extraction behaviour may vary across runs or prompts
+
+- **Unbounded scope**
+  - Model may extract entities outside the defined schema
+  - Difficult to enforce strict entity definitions (`SYMPTOM`, `INTERVENTION`, `COMPLICATION`)
+
+- **Reduced auditability**
+  - Extracted spans may not align precisely with source text
+  - Harder to trace outputs back to exact character positions
+  - Weak provenance compared to rule-based span extraction
+
+- **Difficult debugging**
+  - No clear mechanism to inspect why a span was extracted or missed
+  - Failure modes are opaque (model reasoning is not directly inspectable)
+  - Hard to distinguish extraction vs classification errors
+
+- **Inconsistent structure**
+  - Outputs may vary in formatting, granularity, and boundary selection
+  - Requires additional post-processing to enforce schema consistency
+
+**Why the Hybrid Approach Works**
+
+- **Rules provide control**
+  - Constrain the problem space  
+  - Ensure schema adherence  
+  - Enable exact span extraction with full traceability  
+
+- **Transformer provides understanding**
+  - Interprets context beyond surface patterns  
+  - Handles linguistic variability and ambiguity  
+  - Replaces brittle rule-based context logic  
+
+- **Combined effect**
+  - Controlled candidate generation + robust contextual validation  
+  - Avoids exponential rule complexity  
+  - Maintains interpretability and auditability  
+
+---
+
+#### 2.3 Entity-wise Responsibility Split
 
 | Entity Type   | Rule Strength | Transformer Role        |
 |---------------|--------------|------------------------|
@@ -714,9 +803,20 @@ Validation was implemented via `validate_sentence_segmentation.py`, which applie
 | `COMPLICATION`  | Weak         | Primary classification |
 
 **Key Interpretation**
-- `SYMPTOM`: rules capture most valid cases; transformer corrects errors in negation  
-- `INTERVENTION`: rules act as broad candidate generators; transformer determines true clinical validity by removing non-performed/planned cases  
-- `COMPLICATION`: rules act as broad candidate generators; transformer determines true clinical validity by removing historical/resolved cases and confirming acuity
+
+- **`SYMPTOM`**
+  - Rules capture most valid cases  
+  - Transformer corrects negation and contextual ambiguity  
+
+- **`INTERVENTION`**
+  - Rules act as broad candidate generators  
+  - Transformer determines whether an action was actually performed  
+  - Handles intent vs execution  
+
+- **`COMPLICATION`**
+  - Rules prioritise recall over precision  
+  - Transformer performs primary classification  
+  - Distinguishes acute vs historical vs resolved conditions  
 
 ---
 
@@ -931,7 +1031,7 @@ These tasks define what the model is actually deciding, not just whether the spa
 
 ---
 
-#### 6.3 Output Interpretation
+#### 6.4 Output Interpretation
 
 | Field        | Meaning |
 |--------------|--------|
@@ -1031,7 +1131,7 @@ Extraction in Phase 2 is strictly limited to three entity types that separate co
 - **COMPLICATION** → adverse pathology (what has gone wrong)  
 
 This constraint ensures:
-- High precision and controlled rule design  
+- Controlled scope, clear entity boundaries, and manageable rule design
 - Clear separation between entity types  
 - Clinically meaningful but tractable coverage 
 
@@ -1079,14 +1179,15 @@ This constraint ensures:
 - Chronic/background treatments not initiated in ICU context  
 
 **Rules Role**
-- Moderate-precision candidate generation (pattern-restricted)  
+- High recall, but within a tightly controlled semantic space
+- Moderate-precision candidate generation (pattern-restricted) 
 
 **Transformer Role**
 - Filtering: performed vs planned/hypothetical  
 
 **Boundary Notes**
 - “started X”, “placed on Y” → `INTERVENTION`  
-- planned or suggested actions → not extracted 
+- planned or suggested actions → extracted but filtered by transformer later
 
 ---
 
@@ -1172,58 +1273,87 @@ All excluded types share at least one of the following:
 
 ### 9. Design Trade-offs and Justification
 
-The system adopts a hybrid architecture (rules + transformer) to balance precision, control, and contextual understanding.
-
-**Why hybrid**
-- Rules provide high-precision, interpretable candidate extraction
-- Transformer provides contextual validation and disambiguation
-- Combined approach = controlled + context-aware
-
-**Limitations of rule-only systems**
-- Brittle to linguistic variation  
-- Cannot capture context, temporality, or intent  
-- Requires exponential rule complexity for marginal gains  
-
-**Limitations of ML-only extraction**
-- Reduced interpretability and traceability  
-- No deterministic baseline for debugging  
-- Harder to audit, validate, and control outputs  
-
-**Final design position**
-- Rules = deterministic candidate generator
-- Transformer = context-aware validation layer 
-
-This separation ensures:
-- High precision at extraction stage  
-- Robust handling of clinical language variability  
-- Maintainable and auditable system design  
+The system design reflects explicit trade-offs made to prioritise control, auditability, and clinical reliability over maximal recall and end-to-end optimisation. This section outlines those trade-offs without restating the architectural design.
 
 ---
 
-### 10. Summary
+#### 9.1 Candidate Generation vs Downstream Precision
 
-**Scope**
-- Extraction limited to: `SYMPTOM`, `INTERVENTION`, `COMPLICATION`  
-- Ensures high precision, clear boundaries, and manageable rule design  
+- Broader rule-based candidate generation improves recall at the extraction stage  
+- This introduces a higher pre-validation false positive rate  
+- System precision is therefore dependent on transformer filtering performance  
 
-**System Components**
-- Rule-based extraction (candidate generation)  
-- Negation handling (SYMPTOM only)  
-- Transformer validation (contextual classification)  
+**Implication**
+- Precision is not guaranteed at extraction stage, but enforced post-validation  
+- Weak validation performance directly degrades overall system precision  
 
-**Conceptual Model**
-- Rules → propose candidates  
-- Transformer → determine clinical validity  
+---
 
-**Outputs**
-- One structured JSON object per entity  
-- Span-aligned and traceable  
-- Context-aware (sentence + section)  
-- Model-validated (`is_valid`, `confidence`, `task`)  
+#### 9.2 Determinism vs Linguistic Coverage
 
-**Final Position**
-- Deterministic, section-aware extraction pipeline  
-- Hybrid system combining rule precision with model-based context understanding  
+- Rule-based extraction ensures:
+  - Deterministic behaviour  
+  - Exact span traceability  
+  - Reproducibility across runs  
+
+- However:
+  - Coverage is limited to predefined patterns  
+  - Unseen linguistic variations are not captured  
+
+**Implication**
+- Recall ceiling is bounded by rule coverage  
+- Expanding coverage requires explicit rule engineering  
+
+---
+
+#### 9.3 Modular Separation vs Error Propagation
+
+- Separation of extraction and validation improves:
+  - Debuggability (clear attribution of failure source)  
+  - Maintainability (independent component tuning)  
+
+- However:
+  - Errors propagate across stages:
+    - Missed candidates → unrecoverable recall loss  
+    - Misclassification → precision loss  
+
+**Implication**
+- Pipeline performance is constrained by weakest stage  
+- No mechanism for downstream recovery of missed entities  
+
+---
+
+#### 9.4 Auditability vs End-to-End Optimisation
+
+- Hybrid design enables:
+  - Full traceability from output to source span  
+  - Transparent decision boundaries  
+  - Structured, inspectable failure modes  
+
+- Compared to end-to-end ML systems:
+  - May underperform on benchmark extraction metrics  
+  - Cannot leverage joint optimisation across tasks  
+
+**Implication**
+- System is optimised for interpretability and clinical safety  
+- Not for maximal benchmark performance  
+
+---
+
+#### 9.5 System-Level Design Position
+
+- Prioritises:
+  - Deterministic behaviour  
+  - Schema control  
+  - Traceability and auditability  
+
+- Accepts:
+  - Bounded recall  
+  - Dependence on validation layer  
+  - Lack of global optimisation  
+
+**Conclusion**
+The architecture reflects a deliberate bias toward controlled, explainable extraction suitable for clinical and audit-sensitive environments, rather than maximising raw extraction performance.
 
 ---
 
@@ -1231,12 +1361,12 @@ This separation ensures:
 
 ### 1. Objective
 
-The objective of rule-based extraction is to provide a controlled, deterministic, high-precision, and schema-constrained method for identifying specific entity types within clinical text.
+The objective of rule-based extraction is to provide a controlled, deterministic, moderate-precision, and schema-constrained method for identifying specific entity types within clinical text.
 
 - Following section extraction and sentence segmentation, this stage defines three sets of deterministic rules to extract the entities: **SYMPTOM, INTERVENTION, COMPLICATION**
 - Rules are based on prototypical ICU language and clear lexical patterns, rather than attempting full linguistic coverage
 - The component functions as a candidate generation layer within a hybrid pipeline, not a full clinical NLP system
-- Outputs are structured, stable, interpretable, and span-aligned, making them suitable for downstream transformer validation
+- Outputs are structured, stable, interpretable, and span-aligned, making them suitable for downstream transformer validation where precision is enforced at the final output level rather than at the rule level
 
 ---
 
@@ -1246,7 +1376,7 @@ Rule development is fully constrained by prior schema operationalisation, which 
 
 - Rules focus only on high-confidence, clearly expressed patterns
 - Edge cases, ambiguity, and complex language are intentionally not handled at this stage
-- Responsibility for deeper interpretation is deferred to the transformer layer
+- Responsibility for deeper interpretation and further processing is deferred to the transformer layer
 
 Rules were constructed through targeted inspection of sectioned ICU notes, identifying common and generalisable phrasing patterns and translating them into regex-based rules. This process is guided by theory-guided clinical intuition and pattern recognition rather than dataset optimisation. The approach is intentionally constrained:
 
@@ -1545,7 +1675,7 @@ Example (Note 3):
 - Negated: 8 (38.1%)  
 - Not negated: 13 (61.9%)
 
-**Correct handling of simple negation patterns**
+Correct handling of simple negation patterns:
 - Note 2: “Fever” → negated=True (from “No(t) Fever”)  
 - Note 19:  
   - “n/v” → negated=True  
@@ -1553,7 +1683,7 @@ Example (Note 3):
   - “cough” → negated=True  
   - “palpitations” → negated=True  
 
-**Correct handling of positive symptoms in same note**
+Correct handling of positive symptoms in same note:
 - Note 19:  
   - “Abdominal Pain” → negated=False  
   - “fatigue” → negated=False  
@@ -1570,28 +1700,233 @@ These limitations are consistent with the intended design and are delegated to t
 
 ---
 
-### Overall Assessment
+**E. Deduplication Behaviour**
 
-The validation confirms that the system:
+- Note 16:
+  - “passing out” appears twice → extracted twice  
+  - Reason: occurs in separate sentence contexts (allowed)
 
-- Correctly restricts processing to relevant clinical sections  
-- Reliably extracts symptom mentions using deterministic rules  
-- Maintains accurate character-level span alignment  
-- Applies consistent and interpretable negation logic  
-- Produces structured outputs aligned with downstream requirements  
+- Note 23:
+  - Multiple “pain” mentions extracted within the same section  
+  - Represents different sentence-level occurrences  
 
-The observed behaviour matches the intended design:
-
-> High-precision, interpretable candidate generation for downstream refinement
+This confirms:
+- Deduplication constraint is correctly applied at sentence level
+- Prevents redundant matches within a sentence, and preserves repeated clinical signals across sentences  
 
 ---
 
-### Conclusion
+**F. Span Alignment and Concept Mapping**
 
-The rule-based symptom extraction module is functioning as intended.
+Manual inspection confirms:
 
-- Outputs are **consistent, explainable, and structurally correct**
-- Limitations (e.g. simplified negation, regex coverage) are **intentional design choices**
-- System is **suitable for integration with transformer-based validation in later stages**
+- Extracted spans match exact substrings from original text  
+- Character offsets correctly map to note-level positions  
+- Clinical shorthand is handled appropriately  
 
-No changes required at this stage.
+Examples:
+
+- Note 19:
+  - “n/v” → nausea_vomiting  
+  - “SOB” → dyspnoea  
+- Note 12: “abdominal pain” → pain  
+- Note 3: “LOC” → syncope  
+
+This demonstrates correct:
+- Regex matching  
+- Span extraction  
+- Concept normalisation  
+
+---
+
+**G. End-to-End Behaviour (Representative Case)**
+
+Note 19 demonstrates full pipeline behaviour:
+
+- Multi-section extraction (Chief Complaint, HPI, ROS)  
+- Mixed positive and negated symptoms  
+- Correct mapping of shorthand and abbreviations  
+- Consistent span alignment  
+
+Extracted examples:
+- “Abdominal Pain” → pain (negated=False)  
+- “n/v” → nausea_vomiting (negated=True)  
+- “SOB” → dyspnoea (negated=True)  
+- “fatigue” → fatigue (negated=False)  
+- “epistaxis” → bleeding (negated=True)  
+
+This confirms correct interaction between:
+- Section filtering  
+- Regex detection  
+- Token alignment  
+- Negation logic  
+- Output structuring  
+
+---
+
+### 4. INTERVENTION Extraction
+
+Rule-based intervention extraction identifies administered clinical interventions using deterministic, concept-level regex patterns for broad candidate generation, without negation handling or semantic handling.
+
+---
+
+#### 3.1 Extraction Decisions
+
+
+
+	•	You aim for controlled candidate generation
+	•	Accept moderate precision- Moderate constraint candidate generation - broader extraction is acceptable if constrained to meaningful candidates - section constraint + concept based patterns + no negation = controlled candidate generation
+	•	Rely on transformer to decide:
+	•	“Was this actually performed?”
+
+	•	No negation handling → removes token alignment + scope logic
+	•	No semantic filtering in rules → avoids complex heuristics
+	•	Primarily lexical pattern matching → simpler pipeline
+
+However:
+	•	Precision is lower by design (rules are broader)
+	•	Ambiguity is higher (performed vs planned vs historical)
+	•	Heavier reliance on transformer filtering
+
+So:
+	•	Engineering complexity ↓
+	•	Dependence on downstream validation ↑
+
+⸻
+
+Key Design Implications for INTERVENTION
+
+1. Extraction Strategy
+
+Unlike SYMPTOM:
+	•	Not trying to determine truth
+	•	Only generating plausible intervention candidates
+
+So rules should be:
+	•	Broad but constrained
+	•	Pattern-based, not context-aware
+	•	Focused on action language
+
+broad extraction within a carefully defined clinical intervention space
+
+
+- Section selection
+- Pattern strategy (verb-based)
+- Concept grouping
+- No negation
+- Deduplication
+
+Your intervention problem has:
+	•	high linguistic variability
+	•	shorthand (“on propofol”, “intubated”)
+	•	missing verbs
+	•	implicit actions
+
+→ This makes precision-first rules impossible without killing recall
+
+Precision is enforced at the final output level, not during candidate generation
+
+Is this still good engineering?
+
+Yes — this is actually standard in modern NLP systems
+
+What you are doing is equivalent to:
+
+Candidate Generation + Re-ranking / Filtering
+
+Used in:
+	•	search systems
+	•	entity linking
+	•	information extraction pipelines
+
+Why not let the transformer do extraction entirely?:
+
+Because you lose control, auditability, and consistency
+- No deterministic coverage
+- No bounded scope
+- Poor auditability - 
+  - With model-only extraction:
+    •	spans may not align exactly
+    •	harder to trace back to source text
+- Harder debugging
+  - 	•	You cannot inspect “why something was extracted”
+    •	No clear separation of failure modes
+
+Rules define the search space, transformer decides validity
+
+Should you still group by sentence / concept?
+
+Important correction: your current assumption is wrong
+
+“one concept per sentence”
+
+This is not appropriate for interventions
+
+Why?
+
+Example:
+
+on propofol, fentanyl, and midazolam
+
+If you collapse:
+	•	you lose information
+	•	you distort counts
+	•	you reduce downstream utility
+
+Correct approach
+
+One entity per mention, not per sentence
+
+“what’s the point of concepts if transformer validates anyway?”
+
+Concepts are still critical because they:
+
+✔ constrain the candidate space
+
+✔ enable aggregation (analysis later)
+
+✔ prevent random extraction
+
+
+Why symptoms were different (important clarification)
+
+You deduplicated symptoms because:
+	•	Symptoms are descriptive states
+	•	Repetition usually does not add new information
+
+Interventions are different:
+	•	They are actions or concrete entities
+	•	Multiple mentions often carry distinct meaning
+	•	Different drugs
+	•	Different modalities
+	•	Different evidence signals
+
+So applying the same rule is incorrect generalisation
+
+⸻
+
+Final decision (clean, consistent, minimal complexity)
+
+Extraction stage:
+	•	No deduplication
+	•	One output per matched span
+
+Rationale:
+	•	Preserves determinism and auditability
+	•	Aligns with rule = extraction only
+	•	Avoids premature semantic decisions
+
+Why this is the correct stopping point
+	•	Removes ambiguity → clear rule
+	•	Aligns with your architecture → no contradiction
+	•	Avoids overengineering → no complex dedup logic
+	•	Keeps system debuggable → every output explainable
+---
+
+#### 3.2 Workflow Implementation
+
+---
+
+#### 3.3 Validation Metrics and Manual Sample Analysis
+
+---
