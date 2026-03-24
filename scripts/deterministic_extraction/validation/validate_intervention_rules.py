@@ -2,38 +2,53 @@
 validate_intervention_rules.py
 
 Purpose:
-    Evaluate the performance of the rule-based INTERVENTION extraction pipeline
-    on a sample of ICU clinical notes. This validation script provides
-    both quantitative and qualitative inspection to ensure that the
-    extraction behaves as designed.
+    Evaluate the behaviour of the rule-based INTERVENTION extraction pipeline
+    on a sample of ICU clinical notes. This script focuses on analysing
+    candidate generation characteristics, including coverage, redundancy,
+    and concept distribution.
 
 Usage:
     export PYTHONPATH=$(pwd)/src
     python3 scripts/deterministic_extraction/validation/validate_intervention_rules.py
 
 Workflow:
-    1. Load the ICU corpus 
-    2. Randomly sample 30 notes for validation
-    3. Extract sections from each note using `extract_sections`
-    4. Filter sections to target intervention-relevant sections
+    1. Load the ICU corpus
+    2. Randomly sample a subset of notes
+    3. Extract sections using `extract_sections`
+    4. Filter to intervention-relevant sections
     5. For each section:
-        a. Split into sentences
-        b. Detect interventions using `extract_interventions`
-        c. Deduplicate exact repetitions
+        a. Extract intervention candidates using `extract_interventions`
+        b. Preserve all extracted spans (no concept-level deduplication)
     6. Track metrics:
         - Notes with any sections
         - Notes with target sections
         - Notes with no target sections
-        - Notes with target sections but no symptoms
-        - Total symptoms extracted
-        - Concept counts
+        - Notes with target sections but no interventions
+        - Total intervention candidates extracted
+        - Concept frequency distribution
+        - Occurrence of multiple matches per concept per sentence
     7. Print outputs per note:
         - Sections (truncated)
-        - Extracted symptom entities with concept and section
+        - Extracted intervention entities with concept and section
     8. Summarise:
         - Section coverage
-        - Extraction performance (total, average)
-        - Top concepts
+        - Extraction performance (total, average per note)
+        - Top intervention concepts
+        - Redundancy patterns (multiple matches per concept per sentence)
+
+Design Focus:
+    - Evaluates recall-oriented candidate generation behaviour
+    - Inspects redundancy arising from no deduplication policy
+    - Identifies over- or under-represented concepts
+    - Does NOT evaluate:
+        - Contextual correctness (handled by transformer)
+        - Negation
+        - Temporal validity
+
+Key Interpretation:
+    - High extraction volume is expected (recall-first design)
+    - Multiple mentions of the same concept in a sentence are valid outputs
+    - Redundancy analysis helps assess whether rule patterns are too broad
 """
 
 import pandas as pd
@@ -76,6 +91,9 @@ total_interventions = 0
 
 concept_counter = Counter()
 
+# Global redundancy tracker 
+global_duplicate_concepts = []
+
 # ---------------------------------------------------------------------
 # VALIDATION LOOP
 # ---------------------------------------------------------------------
@@ -109,8 +127,6 @@ for i, note in enumerate(sample):
         continue
 
     notes_with_target_sections += 1
-
-    
 
     # ----------------------------------------------------------
     # Show sections (truncated)
@@ -149,6 +165,7 @@ for i, note in enumerate(sample):
         concept_counter.update([e["concept"]])
         total_interventions += 1
 
+    # Redundancy analysis (per note)
     concept_per_sentence = defaultdict(list)
 
     for e in extracted:
@@ -159,15 +176,14 @@ for i, note in enumerate(sample):
         k: v for k, v in concept_per_sentence.items() if len(v) > 1
     }
 
+    if duplicate_concepts:
+        global_duplicate_concepts.append(duplicate_concepts)
+
     # ----------------------------------------------------------
     # Print extracted entities
     # ----------------------------------------------------------
 
-    print(
-        f'- {e["entity_text"]} '
-        f'| concept={e["concept"]} '
-        f'| section={e["section"]}'
-    )
+    print("\nINTERVENTIONS:")
 
     if extracted:
         print(f"Extracted {len(extracted)} interventions\n")
@@ -217,7 +233,17 @@ print("=" * 80)
 for concept, count in concept_counter.most_common(20):
     print(f"{concept}: {count}")
 
-if duplicate_concepts:
-    print("\nMULTIPLE MATCHES (same concept, same sentence):")
-    for (sent, concept), ents in duplicate_concepts.items():
-        print(f"[{concept}] → {ents}")
+# ----------------------------------------------------------
+# GLOBAL REDUNDANCY SUMMARY
+# ----------------------------------------------------------
+
+if global_duplicate_concepts:
+    print("\n" + "=" * 80)
+    print("MULTIPLE MATCHES (same concept, same sentence)")
+    print("=" * 80)
+
+    for dup_dict in global_duplicate_concepts:
+        for (sent, concept), ents in dup_dict.items():
+            print(f"[{concept}] → {ents}")
+else:
+    print("\nNo multiple-match redundancy detected.")
