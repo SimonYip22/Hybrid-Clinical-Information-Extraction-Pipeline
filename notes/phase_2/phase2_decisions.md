@@ -1676,7 +1676,8 @@ Example (Note 3):
 - Not negated: 13 (61.9%)
 
 Correct handling of simple negation patterns:
-- Note 2: “Fever” → negated=True (from “No(t) Fever”)  
+- Note 2: 
+  - “Fever” → negated=True (from “No(t) Fever”)  
 - Note 19:  
   - “n/v” → negated=True  
   - “SOB” → negated=True  
@@ -1729,8 +1730,10 @@ Examples:
 - Note 19:
   - “n/v” → nausea_vomiting  
   - “SOB” → dyspnoea  
-- Note 12: “abdominal pain” → pain  
-- Note 3: “LOC” → syncope  
+- Note 12: 
+  - “abdominal pain” → pain  
+- Note 3: 
+  - “LOC” → syncope  
 
 This demonstrates correct:
 - Regex matching  
@@ -1772,180 +1775,31 @@ Rule-based intervention extraction identifies administered clinical intervention
 
 #### 3.1 Extraction Decisions
 
-	•	You aim for controlled candidate generation
-	•	Accept moderate precision- Moderate constraint candidate generation - broader extraction is acceptable if constrained to meaningful candidates - section constraint + concept based patterns + no negation = controlled candidate generation
-	•	Rely on transformer to decide:
-	•	“Was this actually performed?”
+**A. Overall extraction strategy**
 
-	•	No negation handling → removes token alignment + scope logic
-	•	No semantic filtering in rules → avoids complex heuristics
-	•	Primarily lexical pattern matching → simpler pipeline
+Intervention extraction is designed as a recall-oriented candidate generation step:
 
-However:
-	•	Precision is lower by design (rules are broader)
-	•	Ambiguity is higher (performed vs planned vs historical)
-	•	Heavier reliance on transformer filtering
+- The objective is to generate plausible intervention candidates, not determine whether an intervention truly occurred
+- All contextual interpretation (e.g. performed vs planned vs historical) is explicitly deferred to the transformer
 
-So:
-	•	Engineering complexity ↓
-	•	Dependence on downstream validation ↑
+This differs fundamentally from `SYMPTOM` extraction:
 
-⸻
-
-Key Design Implications for INTERVENTION
-
-1. Extraction Strategy
-
-Unlike SYMPTOM:
-	•	Not trying to determine truth
-	•	Only generating plausible intervention candidates
-
-So rules should be:
-	•	Broad but constrained
-	•	Pattern-based, not context-aware
-	•	Focused on action language
-
-broad extraction within a carefully defined clinical intervention space
-
-
-- Section selection
-- Pattern strategy (verb-based)
-- Concept grouping
-- No negation
-- Deduplication
-
-Your intervention problem has:
-	•	high linguistic variability
-	•	shorthand (“on propofol”, “intubated”)
-	•	missing verbs
-	•	implicit actions
-
-→ This makes precision-first rules impossible without killing recall
-
-Precision is enforced at the final output level, not during candidate generation
-
-Is this still good engineering?
-
-Yes — this is actually standard in modern NLP systems
-
-What you are doing is equivalent to:
-
-Candidate Generation + Re-ranking / Filtering
-
-Used in:
-	•	search systems
-	•	entity linking
-	•	information extraction pipelines
-
-Why not let the transformer do extraction entirely?:
-
-Because you lose control, auditability, and consistency
-- No deterministic coverage
-- No bounded scope
-- Poor auditability - 
-  - With model-only extraction:
-    •	spans may not align exactly
-    •	harder to trace back to source text
-- Harder debugging
-  - 	•	You cannot inspect “why something was extracted”
-    •	No clear separation of failure modes
-
-Rules define the search space, transformer decides validity
-
-Should you still group by sentence / concept?
-
-Important correction: your current assumption is wrong
-
-“one concept per sentence”
-
-This is not appropriate for interventions
-
-Why?
-
-Example:
-
-on propofol, fentanyl, and midazolam
-
-If you collapse:
-	•	you lose information
-	•	you distort counts
-	•	you reduce downstream utility
-
-Correct approach
-
-One entity per mention, not per sentence
-
-“what’s the point of concepts if transformer validates anyway?”
-
-Concepts are still critical because they:
-
-✔ constrain the candidate space
-
-✔ enable aggregation (analysis later)
-
-✔ prevent random extraction
-
-
-Why symptoms were different (important clarification)
-
-You deduplicated symptoms because:
-	•	Symptoms are descriptive states
-	•	Repetition usually does not add new information
-
-Interventions are different:
-	•	They are actions or concrete entities
-	•	Multiple mentions often carry distinct meaning
-	•	Different drugs
-	•	Different modalities
-	•	Different evidence signals
-
-So applying the same rule is incorrect generalisation
-
-⸻
-
-Final decision (clean, consistent, minimal complexity)
-
-Extraction stage:
-	•	No deduplication
-	•	One output per matched span
+- Symptoms aim for controlled, higher-precision signals with negation and light transformer refinement
+- Interventions prioritise broad coverage within a constrained space, accepting false positive with critical reliance on transformer filtering
 
 Rationale:
-	•	Preserves determinism and auditability
-	•	Aligns with rule = extraction only
-	•	Avoids premature semantic decisions
 
-Why this is the correct stopping point
-	•	Removes ambiguity → clear rule
-	•	Aligns with your architecture → no contradiction
-	•	Avoids overengineering → no complex dedup logic
-	•	Keeps system debuggable → every output explainable
+- ICU intervention language is highly variable, often implicit, and frequently lacks explicit action verbs  
+- Attempting to encode “truth” (e.g. performed vs planned) in rules would require complex, brittle heuristics, with poor generalisation to unseen phrasing
+- Therefore rules are broad but constrained, and precision is enforced downstream
 
+Implications:
 
-Concepts should represent clinical action categories, not:
-	•	individual drugs (too granular)
-	•	overly broad groups like “treatment” (too vague)
+- Lower precision at extraction stage (by design)  
+- Higher reliance on downstream validation  
+- Reduced rule complexity and improved robustness  
 
-Use this rule:
-
-A concept = a clinically meaningful intervention class that would appear as a distinct line in a clinical summary
-
-final concept set of 17 icu focused concepts, minimal but complete and high yield
-
-
-Each concept should include:
-
-A. Explicit terms (high precision)
-	•	Exact procedure names
-	•	Drug names
-	•	Devices
-
-B. Variants / abbreviations
-	•	ICU shorthand
-	•	Acronyms
-
-contain plurals where relevant 
-
-
+---
 
 
 
