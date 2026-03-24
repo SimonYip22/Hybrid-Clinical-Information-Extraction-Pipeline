@@ -79,7 +79,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "VASOPRESSOR_INOTROPE": [
-        r"\b(vasopressor(s)?|inotrope(s)?|inotropic support|pressor(s)?|norad(renaline)?|norepinephrine|adrenaline|epinephrine|vasopressin|dopamine|dobutamine)\b"
+        r"\b(vasopressor(s)?|inotrope(s)?|inotropic support|pressor(s)?|norad(renaline)?|norepinephrine|adrenaline|epinephrine|vasopressin|dopamine|dobutamine|neo)\b"
     ],
 
     "ANALGESIA": [
@@ -115,7 +115,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "SURGICAL_PROCEDURE": [
-        r"\b(surgical (procedure|intervention)|laparotomy|laparoscopy|laparoscopic|thoracotomy|craniotomy|resection|resected|amputation|amputated|transplant(ed)?|theatre)\b"
+        r"\b(surgical (procedure|intervention)|laparotomy|laparoscopy|laparoscopic|thoracotomy|craniotomy|resection|resected|amputation|amputated|transplant(ed)?)\b"
     ],
 
     "NUTRITION": [
@@ -135,7 +135,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "RESUSCITATION": [
-        r"\b(cpr|cardiopulmonary resuscitation|resuscitation|resus|als|advanced life support|bla|basic life support|rosc|return of spontaneous circulation|defibrillation|defib|defibrillated|cardiac arrest|ventricular fibrillation|vf)\b"
+        r"\b(cpr|cardiopulmonary resuscitation|resuscitation|resus|als|advanced life support|bls|basic life support|rosc|return of spontaneous circulation|defibrillation|defib|defibrillated|cardiac arrest|ventricular fibrillation|vf)\b"
     ]
 }
 
