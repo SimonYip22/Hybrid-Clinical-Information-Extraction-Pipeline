@@ -1560,7 +1560,8 @@ All code logic is implemented in `symptom_rules.py`, which defines the functions
 
 5. **Span extraction and alignment**  
   - If a match is found:  
-    - Convert sentence-level match indices → global character offsets  
+     - Start and end indices are obtained relative to the sentence  
+     - These are converted to section-level character offsets using the sentence start position 
       - `global_start = sentence_start + match.start()`  
       - `global_end = sentence_start + match.end()`  
     - Extract exact text span from the original note  
@@ -1903,142 +1904,166 @@ Conclusion:
 
 No attempt is made to determine:
 
-- Whether an intervention was actually performed  
+- Whether an intervention was performed  
 - Whether it is negated, planned, or historical  
 
 Rationale:
 
-- These require semantic and temporal reasoning beyond rule-based systems  
-- Implementing this in rules would require scope modelling, token alignment, and complex heuristics
+- These require temporal and contextual reasoning beyond rule-based systems  
+- Implementing this in rules would require complex scope and token logic  
 
-This is intentionally avoided:
+Decision:
 
-- Keeps pipeline simple and interpretable  
-- Avoids brittle logic  
-- Delegates all interpretation to transformer  
+- All semantic interpretation is delegated to the transformer  
+- Rules remain purely lexical   
 
 ---
 
 **G. Sentence-level processing and span alignment**
 
-Same as with SYMPTOM extraction, INTERVENTION extraction is performed at the sentence level:
+Extraction is performed at the sentence level:
 
 - Sections are split into sentences  
-- Regex patterns are applied per sentence  
+- Patterns are applied per sentence  
 
 For each match:
 
-- Character offsets are calculated relative to the full section  
-- Exact span text is extracted  
+- Character offsets are mapped to the full section  
+- Exact span text is preserved  
 
 This ensures:
 
 - Precise traceability to source text  
 - Compatibility with downstream validation  
-- Full auditability of each extraction  
+- Full auditability 
 
 ---
 
-**H. Deduplication strategy (exact span only)**
+**H. Deduplication strategy**
 
 Only exact duplicate spans are removed:
 
-- Deduplication only for matches of the same start index, end index, and concept  
-- No deduplication is performed per concept per sentence 
+- Same start index, end index, and concept  
+- No concept-level or sentence-level deduplication  
 
-Interventions differ fundamentally from symptoms:
+Rationale:
 
-- Symptoms are descriptive states → repetition rarely adds value  
-- Interventions are concrete actions/entities → multiple mentions are meaningful  
-- Example:
-  - Multiple mentions of the same concept: “on propofol, fentanyl, and midazolam”
-  - Collapsing would lose information, distort counts, and reduce downstream utility  
+- Interventions are concrete actions/entities  
+- Multiple mentions are often clinically meaningful  
 
-Therefore:
+Example:
 
-- All mentions are retained, even if they map to the same concept, as long as they are distinct spans
-- This ensures deterministic outputs, full signal retention, with no premature semantic decisions 
+- “on propofol, fentanyl, and midazolam” → multiple valid entities  
+
+Collapsing would:
+
+- Lose information  
+- Distort counts  
+- Reduce downstream utility  
+
+Decision:
+
+- Preserve all distinct spans  
+- Avoid premature semantic aggregation  
 
 ---
 
 **I. Controlled candidate space (high-recall but bounded)**
 
-Although extraction is recall-oriented, it is not unconstrained.
-
-Candidate generation is limited by:
+Although recall-oriented, extraction is constrained by:
 
 1. Section filtering  
-2. Concept-based pattern matching  
+2. Concept-based patterns  
 3. ICU-specific vocabulary  
 
-This creates moderate-constraint candidate generation:
+This ensures:
 
-- Broad extraction within a clinically meaningful space
-- Avoidance of arbitrary or irrelevant matches  
+- Broad but clinically meaningful candidate generation  
+- Avoidance of arbitrary matches  
 
 ---
 
 **J. Handling ambiguity (by design)**
 
-The system intentionally allows ambiguity:
+Ambiguity is intentionally allowed:
 
 - Performed vs planned vs historical  
 - Explicit vs implicit interventions  
 
-This is acceptable because:
+Rationale:
 
-- Ambiguity is resolved in downstream transformer validation  
-- Attempting to resolve it in rules would:
-  - Increase complexity  
-  - Reduce recall  
-  - Introduce brittle heuristics  
+- Resolving ambiguity requires contextual reasoning  
+- Rule-based handling would increase complexity and reduce recall  
 
----
+Decision:
 
-**K. Design trade-offs**
-
-The intervention extraction component makes the following explicit trade-offs:
-
-**Advantages:**
-
-- High recall of intervention mentions  
-- Simple, interpretable rule set  
-- Fully traceable outputs  
-- Robust to variation in clinical language  
-
-**Limitations:**
-
-- Lower precision at extraction stage  
-- No contextual understanding  
-- Potential over-generation of candidates  
-
-These are intentional and acceptable because:
-
-- The system is designed as a **two-stage pipeline**  
-- Precision is enforced **after extraction**, not during  
+- Ambiguity is resolved in downstream transformer validation 
 
 ---
 
 **Overall design rationale**
 
-The intervention extraction system is deliberately designed to:
+The intervention extraction system is designed to:
 
-- Maximise **coverage of clinically relevant intervention mentions**  
-- Avoid encoding complex linguistic or semantic rules  
-- Maintain **simplicity, determinism, and auditability**  
-- Produce structured, span-aligned candidates for downstream validation  
+- Maximise coverage of clinically relevant interventions  
+- Avoid complex linguistic or semantic rules  
+- Maintain simplicity, determinism, and auditability  
+- Produce structured, span-aligned candidates for transformer validation  
 
-It differs from SYMPTOM extraction in that:
+Key distinctions from SYMPTOM extraction:
 
-- It prioritises **recall over precision**  
-- It handles **higher linguistic variability**  
-- It preserves **all mentions rather than collapsing concepts**  
+- Recall-first rather than precision-first  
+- Higher linguistic variability  
+- No concept collapsing; all mentions are preserved  
 
-The result is a robust, scalable candidate generator aligned with modern NLP pipeline design.
+This results in a robust and scalable candidate generation component aligned with modern NLP pipeline design.
 
 ---
 
 #### 3.2 Workflow Implementation
+
+All code logic is implemented in `intervention_rules.py`, which defines the functions `extract_interventions()` which applies the extraction across all sentences in the target sections of a note.
+
+**Workflow**
+
+1. **Section filtering**  
+  - Input text is processed only if its section belongs to the predefined intervention-relevant set (ACTION, ASSESSMENT, ASSESSMENT AND PLAN).  
+  - Non-target sections are skipped entirely, constraining the candidate space early.
+
+2. **Sentence segmentation**  
+  - Section text is split into sentences using `split_into_sentences()`.  
+  - Each sentence retains start/end character offsets relative to the original text.
+
+3. **Sentence-level iteration**  
+   - Each sentence is processed independently  
+   - The sentence text is lowercased for case-insensitive matching  
+   - Original sentence text is preserved for span reconstruction and output
+
+4. **Concept-level pattern matching**  
+   - For each sentence, all intervention concepts in `INTERVENTION_PATTERNS` are iterated over  
+   - Each concept is associated with one or more regex patterns representing lexical variants  
+   - Patterns are applied using `re.finditer()` to identify all non-overlapping matches within the sentence for detection of multiple mentions per concept  
+
+5. **Span extraction and alignment**  
+  - If a match is found:  
+     - Start and end indices are obtained relative to the sentence  
+     - These are converted to section-level character offsets using the sentence start position 
+      - `global_start = sentence_start + match.start()`  
+      - `global_end = sentence_start + match.end()`  
+    - Extract exact text span from the original note  
+
+9. **Entity construction**  
+  - A structured INTERVENTION entity is created containing:  
+    - Identifiers (note, subject, admission, ICU stay)  
+    - Extracted span (`entity_text`, `char_start`, `char_end`)  
+    - Concept label  
+    - Context (`sentence_text`, `section`)  
+    - Negation flag = `None` (not applied)
+    - Validation placeholder for downstream transformer  
+
+10. **Aggregation and output**  
+  - All extracted entities across sentences are collected into a list  
+  - The final output is a list of structured `INTERVENTION` entities, ready for downstream validation 
 
 ---
 
