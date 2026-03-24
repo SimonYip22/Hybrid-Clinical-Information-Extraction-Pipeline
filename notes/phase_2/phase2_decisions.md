@@ -1560,8 +1560,8 @@ All code logic is implemented in `symptom_rules.py`, which defines the functions
 
 5. **Span extraction and alignment**  
   - If a match is found:  
-     - Start and end indices are obtained relative to the sentence  
-     - These are converted to section-level character offsets using the sentence start position 
+    - Start and end indices are obtained relative to the sentence  
+    - These are converted to section-level character offsets using the sentence start position 
       - `global_start = sentence_start + match.start()`  
       - `global_end = sentence_start + match.end()`  
     - Extract exact text span from the original note  
