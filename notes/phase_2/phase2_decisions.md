@@ -1584,10 +1584,13 @@ All code logic is implemented in `symptom_rules.py`, which defines the functions
   - A structured SYMPTOM entity is created containing:  
     - Identifiers (note, subject, admission, ICU stay)  
     - Extracted span (`entity_text`, `char_start`, `char_end`)  
-    - Concept label  
+    - Concept label (`concept`) 
     - Context (`sentence_text`, `section`)  
     - Negation flag  
-    - Validation placeholder for downstream transformer  
+    - Validation placeholder:
+      - `is_valid` (to be filled by transformer)  
+      - `confidence`  
+      - Task label: `"symptom_presence"` 
 
 10. **Aggregation and output**  
   - All extracted entities across sentences are collected into a list  
@@ -1618,10 +1621,15 @@ Validation was performed using `validate_symptom_rules.py` on a random sample of
     - Per-sentence concept deduplication
 
 4. **Tracking and Metrics**
-  - Section coverage
+  - Section coverage:
+    - Notes with any sections
+    - Notes with target sections
+    - Notes without target sections
   - Extraction yield (per note and total)
-  - Concept distribution
-  - Negation behaviour
+  - Concept distribution:
+    - Frequency of each symptom concept across the sample
+  - Negation behaviour:
+    - Proportion of negated vs non-negated symptoms
 
 5. **Qualitative Inspection**
   - Raw outputs printed per note for manual inspection
@@ -1774,7 +1782,7 @@ Rule-based intervention extraction identifies administered clinical intervention
 
 ---
 
-#### 3.1 Extraction Decisions
+#### 4.1 Extraction Decisions
 
 **A. Overall extraction strategy**
 
@@ -2020,7 +2028,7 @@ This results in a robust and scalable candidate generation component aligned wit
 
 ---
 
-#### 3.2 Workflow Implementation
+#### 4.2 Workflow Implementation
 
 All code logic is implemented in `intervention_rules.py`, which defines the functions `extract_interventions()` which applies the extraction across all sentences in the target sections of a note.
 
@@ -2035,330 +2043,297 @@ All code logic is implemented in `intervention_rules.py`, which defines the func
   - Each sentence retains start/end character offsets relative to the original text.
 
 3. **Sentence-level iteration**  
-   - Each sentence is processed independently  
-   - The sentence text is lowercased for case-insensitive matching  
-   - Original sentence text is preserved for span reconstruction and output
+  - Each sentence is processed independently  
+  - The sentence text is lowercased for case-insensitive matching  
+  - Original sentence text is preserved for span reconstruction and output
 
 4. **Concept-level pattern matching**  
-   - For each sentence, all intervention concepts in `INTERVENTION_PATTERNS` are iterated over  
-   - Each concept is associated with one or more regex patterns representing lexical variants  
-   - Patterns are applied using `re.finditer()` to identify all non-overlapping matches within the sentence for detection of multiple mentions per concept  
+  - For each sentence, all intervention concepts in `INTERVENTION_PATTERNS` are iterated over  
+  - Each concept is associated with one or more regex patterns representing lexical variants  
+  - Patterns are applied using `re.finditer()` to identify all non-overlapping matches within the sentence for detection of multiple mentions per concept  
 
 5. **Span extraction and alignment**  
   - If a match is found:  
-     - Start and end indices are obtained relative to the sentence  
-     - These are converted to section-level character offsets using the sentence start position 
+    - Start and end indices are obtained relative to the sentence  
+    - These are converted to section-level character offsets using the sentence start position 
       - `global_start = sentence_start + match.start()`  
       - `global_end = sentence_start + match.end()`  
     - Extract exact text span from the original note  
 
-9. **Entity construction**  
+6. **Exact span deduplication**  
+   - A per-sentence `seen_spans()` set is used to track extracted spans  
+   - Duplicate matches are removed only if they have identical:
+     - Start index  
+     - End index  
+     - Concept label 
+
+7. **Entity construction**  
   - A structured INTERVENTION entity is created containing:  
     - Identifiers (note, subject, admission, ICU stay)  
     - Extracted span (`entity_text`, `char_start`, `char_end`)  
-    - Concept label  
+    - Concept label (`concept`) 
     - Context (`sentence_text`, `section`)  
     - Negation flag = `None` (not applied)
-    - Validation placeholder for downstream transformer  
+    - Validation placeholder:
+      - `is_valid` (to be filled by transformer)  
+      - `confidence`  
+      - Task label: `"intervention_performed"`
 
-10. **Aggregation and output**  
+8. **Aggregation and output**  
   - All extracted entities across sentences are collected into a list  
   - The final output is a list of structured `INTERVENTION` entities, ready for downstream validation 
 
 ---
 
-#### 3.3 Validation Metrics and Manual Sample Analysis
+#### 4.3 Validation Metrics and Manual Sample Analysis
 
-1. System-Level Behaviour — Is It Working as Designed?
+Validation was performed using `validate_intervention_rules.py` on a random sample of 30 ICU notes. The objective was to verify that the rule-based INTERVENTION extraction behaves as designed under realistic conditions, with emphasis on section filtering, recall-oriented candidate generation, concept mapping, redundancy patterns, and span traceability.
 
-✔ Coverage and triggering
-	•	18 / 30 notes (60%) had target sections → expected for ICU notes (many notes are admin / irrelevant)
-	•	Only 1 / 18 notes (5.6%) had no interventions despite relevant sections
+**Validation Logic**
 
-Interpretation:
-	•	Your rules are not under-sensitive
-	•	You are successfully avoiding the main failure mode: missing candidates
+1. **Sampling**
+  - Random sample of ICU notes from the corpus
+  - Ensures representative variation in structure and content
 
-This is the single most important success criterion at this stage.
+2. **Section Extraction**
+  - Notes are parsed into sections
+  - Only 3 target sections (Action, Assessment, Assessment and Plan) are processed for intervention extraction
 
-⸻
+3. **Intervention Extraction**
+  - Each target section is processed independently
+  - Pipeline:
+    - Sentence segmentation
+    - Regex-based intervention detection
+    - Span extraction with character offsets
+    - Exact span deduplication (same start, end, concept only)
 
-✔ Extraction volume
-	•	96 interventions total
-	•	~5.3 per note
+4. **Tracking and Metrics**
+  - Section coverage:
+    - Notes with any sections
+    - Notes with target sections
+    - Notes without target sections
+  - Extraction performance:
+    - Notes with target sections but no interventions
+    - Total intervention candidates extracted
+    - Average interventions per note
+  - Concept distribution:
+    - Frequency of each intervention concept across the sample
+  - Redundancy patterns:
+    - Multiple mentions of the same concept within a sentence (tracked, not removed)
 
-This is clinically realistic density for ICU documentation.
+5. **Qualitative Inspection**
+  - Raw outputs printed per note for manual inspection
+  - Enables verification of span accuracy, concept mapping, and negation
 
-Conclusion:
-	•	Not under-extracting
-	•	Not exploding uncontrollably
+---
 
-⸻
+**Key Findings**
 
-2. What Worked Well (High-Value Signals)
+**A. System-level behaviour (coverage and triggering)**
 
-A. Strong ICU-relevant concept coverage
-
-Your top concepts:
-	•	BLOOD_PRODUCT (14)
-	•	SEDATION (14)
-	•	AIRWAY_MANAGEMENT (13)
-	•	FLUID_THERAPY (11)
-
-These are exactly the dominant ICU intervention domains.
-
-This confirms:
-	•	Your concept set is well chosen
-	•	You are not missing major ICU intervention classes
-
-⸻
-
-B. Good abbreviation capture (critical success)
-
-Examples:
-	•	NC → oxygen
-	•	IVF, NS → fluids
-	•	PRBC, FFP → blood
-	•	Vanc, abx → antibiotics
-	•	NGT → procedure
-
-These are high-value ICU shorthand terms that many systems miss.
-
-⸻
-
-C. Correct multi-signal capture (desired redundancy)
-
-Example (NOTE 4):
-
-sedated + Propofol + sedation
-
-Example (NOTE 1):
-
-PRBCs + FFP + PRBCs
-
-This is not an error — it is:
-
-multiple surface forms reinforcing the same clinical intervention
-
-This is exactly why you DO NOT deduplicate at rule stage
-
-
-⸻
-
-D. Good real-world examples (use these)
-
-Example 1 — Ideal fluid + blood capture
-
-NOTE 1:
-
-IVF
-NS
-PRBCs
-FFP
-
-→ Shows:
-	•	Abbreviation handling
-	•	Multiple intervention types in one sentence
-	•	Correct concept mapping
-
-⸻
-
-Example 2 — Sedation stack (very realistic ICU)
-
-NOTE 4:
-
-sedated
-Propofol
-sedation
-
-→ Shows:
-	•	Drug + state + concept
-	•	Perfect example of why deduplication is wrong here
-
-⸻
-
-Example 3 — Mixed intervention types
-
-NOTE 3:
-
-metoprolol
-intubation
-NC
-FFP
-IVF
-abx
-arterial line
-
-→ Demonstrates:
-	•	Cross-domain extraction (cardio, airway, fluids, infection, procedures)
-	•	Good breadth
-
-⸻
-
-3. Issues Identified (Important)
-
-These are real—but must be judged against your pipeline philosophy.
-
-⸻
-
-Issue 1 — Duplicate concepts within sentence
-
-Example:
-
-NGT ×4
-PRBC ×2
-neo ×2
-
-Cause:
-	•	Same pattern matched multiple times
-	•	Or multiple mentions in text
-
-Is this acceptable?
-
-✔ YES — at rule stage
-
-Because:
-	•	You are extracting mentions, not concepts
-	•	Deduplication is a semantic decision, not lexical
+- 18 / 30 notes (60%) contained target sections  
+- Only 1 / 18 notes (5.6%) with target sections produced no interventions  
 
 Interpretation:
 
-This validates your earlier decision:
+- The system reliably triggers when relevant sections are present  
+- Near-complete coverage within eligible notes  
+- No evidence of systematic under-extraction  
 
-“Do not deduplicate interventions at rule stage”
+This confirms correct section filtering and sufficient rule coverage.
 
-⸻
+---
 
-Issue 2 — Weak false positives (context errors)
+**B. Extraction volume and density**
 
-Example (NOTE 2):
-
-sedation → but context = "previous sedation"
-
-Example:
-
-Intubation → hypothetical / plan
-
-Cause:
-	•	No temporality / intent modelling
-
-Is this acceptable?
-
-✔ YES — by design
-
-This is exactly:
-
-Transformer’s job (validation layer)
-
-⸻
-
-Issue 3 — Synonym duplication
-
-Example:
-
-ASA + Aspirin
-
-Cause:
-	•	Same drug, different forms
-
-Is this acceptable?
-
-✔ YES
-
-Because:
-	•	They are distinct spans
-	•	You preserve provenance
-
-⸻
-
-Issue 4 — Missing some interventions (minor recall gaps)
-
-Examples:
-	•	No capture of:
-	•	albumin
-	•	octreotide
-	•	protonix
-	•	sucralfate
+- 96 total interventions extracted  
+- Mean ≈ 5.3 interventions per note  
 
 Interpretation:
-	•	These are second-order drugs
-	•	Not core ICU interventions
 
-Is this a problem?
+- Extraction density is clinically realistic for ICU notes
+- No evidence of:
+  - Under-extraction (missed signal)  
+  - Uncontrolled over-generation  
 
-✖ NO (for now)
+This indicates appropriate balance between recall and constraint.
 
-Your system correctly prioritises:
-	•	high-frequency
-	•	high-impact interventions
+---
 
-⸻
+**C. Concept coverage and distribution**
 
-Issue 5 — Slight under-capture of oxygen modalities
+Top concepts:
 
-Example:
-	•	“face tent”, “humidified O2” not captured
+- `BLOOD_PRODUCT` (14)  
+- `SEDATION` (14)  
+- `AIRWAY_MANAGEMENT` (13)  
+- `FLUID_THERAPY` (11)  
 
-This is the only genuine recall gap worth fixing
+Interpretation:
 
-⸻
+- Core ICU intervention domains are strongly represented  
+- Distribution aligns with expected clinical priorities  
+- No dominant concept imbalance or missing major category  
 
-4. Concept Distribution — Is It Balanced?
+---
 
-Yes.
+**D. Robust abbreviation and shorthand handling**
 
-No single concept dominates excessively.
-	•	Blood + sedation + airway → expected ICU triad
-	•	Long tail present → good generalisation
+Frequent successful matches include:
 
-No evidence of:
-	•	Concept explosion
-	•	Missing major category
+- `NC` → oxygen therapy  
+- `IVF`, `NS` → fluid therapy  
+- `PRBC`, `FFP` → blood products  
+- `Vanc`, `abx` → antibiotics  
+- `NGT` → procedures  
 
-⸻
+Interpretation:
 
-5. Key Design Validation
+- High-frequency ICU shorthand is consistently captured  
+- Supports robustness in real-world, non-standardised text  
 
-This output strongly confirms your architecture is correct:
+---
 
-✔ Rule layer is doing:
-	•	Broad capture
-	•	High recall
-	•	Span-accurate extraction
+**E. Multi-signal capture (intended redundancy)**
 
-✔ NOT doing:
-	•	Deduplication
-	•	Context reasoning
-	•	Clinical interpretation
+Observed patterns:
 
-Which is exactly what you designed.
+- Multiple surface forms mapping to the same concept within a sentence  
+  - e.g. sedation-related terms (`sedated`, `Propofol`, `sedation`)  
+  - e.g. blood products (`PRBC`, `FFP`, repeated mentions)
 
-⸻
+Interpretation:
 
-6. Final Verdict
+- Reflects true clinical documentation patterns  
+- Confirms correct design choice:
+  - No concept-level deduplication  
+  - Preservation of all lexical signals  
 
-Is the system working?
+---
 
-✔ Yes — correctly and as intended
+**F. Representative extraction examples**
 
-Are the “issues” actual problems?
+Examples across notes show simultaneous capture of:
 
-Mostly no — they are:
-	•	Expected
-	•	Designed-for behaviour
+- Airway (e.g. intubation)  
+- Fluids and blood products  
+- Antibiotics  
+- Cardiovascular drugs  
+- Procedures (e.g. arterial line, NGT)
 
-Do NOT:
-	•	Add deduplication
-	•	Add context logic
-	•	Reduce duplicates
+Interpretation:
 
-7. Bottom Line (Critical)
+- The system generalises across intervention categories within single notes  
+- Demonstrates breadth rather than narrow pattern matching  
 
-What you are seeing is:
+---
 
-A correct high-recall lexical extractor producing noisy but rich candidates
+**G. Redundancy patterns (validated design choice)**
 
-That is exactly what a hybrid pipeline requires.
+Observed:
 
-If this looked “clean”, it would actually mean:
-→ your system is too restrictive and losing recall
+- Multiple matches of the same concept within a sentence  
+- Examples include repeated mentions of:
+  - Blood products  
+  - Sedation  
+  - Procedures (e.g. NGT ×4)  
+  - Vasopressors (e.g. repeated “neo”)  
+
+Interpretation:
+
+- Arises from:
+  - Repeated mentions in text  
+  - Distinct spans referring to similar concepts  
+- This is consistent with span-level extraction  
+
+No evidence that redundancy reflects erroneous matching.
+
+---
+
+**H. Contextual false positives (expected behaviour)**
+
+Observed:
+
+- Interventions extracted in:
+  - Historical context (e.g. prior sedation)  
+  - Planned or hypothetical contexts  
+
+Interpretation:
+
+- No modelling of temporality or intent at rule stage  
+- These are expected outputs under recall-first design  
+- Downstream validation is responsible for contextual filtering  
+
+---
+
+**I. Synonym and lexical variation preservation**
+
+Observed:
+
+- Multiple lexical variants for the same intervention:
+  - e.g. `ASA`, `Aspirin`, `Heparin`  
+  - e.g. drug + class-level terms (e.g. `Propofol` and `sedation`)  
+
+Interpretation:
+
+- Distinct spans are preserved intentionally  
+- Maintains traceability and maximises downstream signal  
+
+---
+
+**J. Minor recall gaps**
+ 
+Observed:
+
+- Regex patterns miss lower-frequency drugs (e.g. albumin, octreotide)  
+- Regex patterns miss certain oxygen delivery modalities (e.g. “face tent”, “humidified O2”)  
+
+Interpretation:
+
+- Drug omissions are non-critical and low-frequency  
+- Oxygen modality coverage represents a narrow but identifiable gap  
+
+No evidence of systemic recall failure.
+
+---
+
+**Overall design validation**
+
+- High-recall candidate generation achieved  
+- Span-level extraction is consistent and accurate  
+- Concept mapping aligns with ICU clinical structure  
+- Observed redundancy and noise are expected properties of the design  
+
+The system is functioning as intended for a rule-based candidate generation layer.
+
+---
+
+### 5. COMPLICATION Extraction
+
+Rule-based complication extraction identifies documented adverse events and complications using deterministic, concept-level regex patterns for broad candidate generation
+
+---
+
+#### 5.1 Extraction Decisions
+
+---
+
+#### 5.2 Workflow Implementation
+
+All code logic is implemented in `complication_rules.py`, which defines the functions `extract_complications()`. The main function `extract_complications()` applies the extraction across all sentences in the target sections of a note. 
+
+**Workflow**
+
+---
+
+#### 5.3 Validation Metrics and Manual Sample Analysis
+
+Validation was performed using `validate_complication_rules.py` on a random sample of 30 ICU notes. The objective was to verify that the rule-based COMPLICATION extraction behaves as designed under realistic conditions, focusing on section filtering, extraction behaviour, concept mapping, and span alignment.
+
+**Validation Logic**
+
+---
+
+**Key Findings**
+
+---
