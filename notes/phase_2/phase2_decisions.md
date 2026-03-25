@@ -681,7 +681,7 @@ Validation was implemented via `validate_sentence_segmentation.py`, which applie
 ### 1. Objective
 
 **Purpose**
-- Define the scope of entity extraction: `SYMPTOM`, `INTERVENTION`, `COMPLICATION`
+- Define the scope of entity extraction: `SYMPTOM`, `INTERVENTION`, `CLINICAL_CONDITION`
 - Establish a structured schema for downstream validation and analysis
 - Constrain scope to prevent uncontrolled expansion of entity types
 
@@ -713,7 +713,7 @@ The system is explicitly designed as a hybrid pipeline, separating candidate gen
   - Behaviour varies by entity type:
     - `SYMPTOM`: high-precision extraction  
     - `INTERVENTION`: moderate-precision, recall-aware candidate generation  
-    - `COMPLICATION`: high-recall candidate generation  
+    - `CLINICAL_CONDITION`: high-recall candidate generation  
 
 - **Transformer-based validation**
   - Defines the decision space (what is clinically valid)
@@ -741,7 +741,7 @@ This separation ensures:
 The system is not uniformly precision-first at the rule level (like traditional rule-based NLP), it is designed to produce high-precision final outputs (hybrid pipeline)
 
 - Precision is enforced at the system level, not necessarily at the extraction stage  
-- For entities with high linguistic variability (`INTERVENTION`, `COMPLICATION`):
+- For entities with high linguistic variability (`INTERVENTION`, `CLINICAL_CONDITION`):
   - Broader candidate generation is required  
   - Precision is recovered downstream via transformer validation  
 
@@ -759,7 +759,7 @@ A fully model-based extraction approach was considered but rejected in favour of
 
 - **Unbounded scope**
   - Model may extract entities outside the defined schema
-  - Difficult to enforce strict entity definitions (`SYMPTOM`, `INTERVENTION`, `COMPLICATION`)
+  - Difficult to enforce strict entity definitions (`SYMPTOM`, `INTERVENTION`, `CLINICAL_CONDITION`)
 
 - **Reduced auditability**
   - Extracted spans may not align precisely with source text
@@ -800,7 +800,7 @@ A fully model-based extraction approach was considered but rejected in favour of
 |---------------|--------------|------------------------|
 | `SYMPTOM`       | Strong       | Refinement             |
 | `INTERVENTION`  | Moderate     | Filtering              |
-| `COMPLICATION`  | Weak         | Primary classification |
+| `CLINICAL_CONDITION`  | Weak         | Primary classification |
 
 **Key Interpretation**
 
@@ -813,7 +813,7 @@ A fully model-based extraction approach was considered but rejected in favour of
   - Transformer determines whether an action was actually performed  
   - Handles intent vs execution  
 
-- **`COMPLICATION`**
+- **`CLINICAL_CONDITION`**
   - Rules prioritise recall over precision  
   - Transformer performs primary classification  
   - Distinguishes acute vs historical vs resolved conditions  
@@ -837,7 +837,7 @@ Each entity follows a two-layer schema:
 
   "entity_text": "string",
   "concept": "string",
-  "entity_type": "SYMPTOM | INTERVENTION | COMPLICATION",
+  "entity_type": "SYMPTOM | INTERVENTION | CLINICAL_CONDITION",
 
   "char_start": 0,
   "char_end": 0,
@@ -849,7 +849,7 @@ Each entity follows a two-layer schema:
   "validation": {
     "is_valid": true | false,
     "confidence": 0-1,
-    "task": "symptom_presence | intervention_performed | complication_active"
+    "task": "symptom_presence | intervention_performed | clinical_condition_active"
   }
 }
 ```
@@ -913,11 +913,11 @@ Negation is not uniformly informative across entity types. Its usefulness depend
 |---------------|------------------------------|------------------|
 | SYMPTOM       | Is it present?               | Strong signal    |
 | INTERVENTION  | Was it performed?            | Weak signal      |
-| COMPLICATION  | Is it active?                | Weak signal      |
+| CLINICAL_CONDITION  | Is it active?                | Weak signal      |
 
 - Negation can be detected in all entity types  
 - However, only for `SYMPTOM` does it directly correspond to the target variable  
-- For `INTERVENTION` and `COMPLICATION`, negation captures only a narrow subset of cases and does not reflect the full decision space  
+- For `INTERVENTION` and `CLINICAL_CONDITION`, negation captures only a narrow subset of cases and does not reflect the full decision space  
 
 ---
 
@@ -935,7 +935,7 @@ Negation directly answers the clinical question:
 
 ---
 
-#### 5.4 Why Negation Fails for INTERVENTION and COMPLICATION
+#### 5.4 Why Negation Fails for INTERVENTION and CLINICAL_CONDITION
 
 Negation only captures a limited subset of interpretations:
 
@@ -965,7 +965,7 @@ Negation only captures a limited subset of interpretations:
 |---------------|--------------|
 | `SYMPTOM`       | `true` / `false` |
 | `INTERVENTION`  | `null`         |
-| `COMPLICATION`  | `null`         |
+| `CLINICAL_CONDITION`  | `null`         |
 
 **Rationale**
 - Use negation only where it is semantically aligned with the task  
@@ -1008,7 +1008,7 @@ Each entity type maps to a specific classification task:
 |---------------|--------------------------|
 | `SYMPTOM`       | `symptom_presence`         |
 | `INTERVENTION`  | `intervention_performed`   |
-| `COMPLICATION`  | `complication_active`      |
+| `CLINICAL_CONDITION`  | `clinical_condition_active`      |
 
 These tasks define what the model is actually deciding, not just whether the span exists.
 
@@ -1077,7 +1077,7 @@ This separation prevents overfitting rules to linguistic complexity.
 - Removes plans, recommendations, and hypotheticals
 - Handles intent vs execution
 
-**COMPLICATION**
+**CLINICAL_CONDITION**
 
 - Acts as the primary classifier
 - Distinguishes acute vs historical vs resolved conditions
@@ -1112,7 +1112,7 @@ Key Decision:
 |---------------|--------------|------------------------|
 | `SYMPTOM`      | Strong       | Medium (refinement)   |
 | `INTERVENTION`  | Moderate     | High (filtering)     |
-| `COMPLICATION`  | Weak         | Very High (primary classification)  |
+| `CLINICAL_CONDITION`  | Weak         | Very High (primary classification)  |
 
 - The system is intentionally asymmetric across entity types  
 - Transformer reliance increases as rule reliability decreases  
@@ -1128,7 +1128,7 @@ Extraction in Phase 2 is strictly limited to three entity types that separate co
 
 - **SYMPTOM** → patient state (what is happening to the patient)  
 - **INTERVENTION** → clinical actions (what is being done)  
-- **COMPLICATION** → adverse pathology (what has gone wrong)  
+- **CLINICAL_CONDITION** → disease states (what is wrong with the patient)  
 
 This constraint ensures:
 - Controlled scope, clear entity boundaries, and manageable rule design
@@ -1191,7 +1191,7 @@ This constraint ensures:
 
 ---
 
-#### 7.4 COMPLICATION
+#### 7.4 CLINICAL_CONDITION
 
 **Definition**
 - Acute or active pathological conditions during ICU stay  
@@ -1212,7 +1212,7 @@ This constraint ensures:
 - Primary classification (acute vs historical vs resolved)  
 
 **Boundary Notes**
-- AKI, sepsis, pneumothorax → `COMPLICATION`  
+- AKI, sepsis, pneumothorax → `CLINICAL_CONDITION`  
 - chronic conditions → not extracted unless acute worsening is indicated 
 
 ---
@@ -1363,7 +1363,7 @@ The architecture reflects a deliberate bias toward controlled, explainable extra
 
 The objective of rule-based extraction is to provide a controlled, deterministic, moderate-precision, and schema-constrained method for identifying specific entity types within clinical text.
 
-- Following section extraction and sentence segmentation, this stage defines three sets of deterministic rules to extract the entities: **SYMPTOM, INTERVENTION, COMPLICATION**
+- Following section extraction and sentence segmentation, this stage defines three sets of deterministic rules to extract the entities: **SYMPTOM, INTERVENTION, CLINICAL_CONDITION**
 - Rules are based on prototypical ICU language and clear lexical patterns, rather than attempting full linguistic coverage
 - The component functions as a candidate generation layer within a hybrid pipeline, not a full clinical NLP system
 - Outputs are structured, stable, interpretable, and span-aligned, making them suitable for downstream transformer validation where precision is enforced at the final output level rather than at the rule level
@@ -2308,17 +2308,17 @@ The system is functioning as intended for a rule-based candidate generation laye
 
 ---
 
-### 5. COMPLICATION Extraction
+### 5. CLINICAL_CONDITION Extraction
 
-Rule-based complication extraction identifies documented adverse events and complications using deterministic, concept-level regex patterns for broad candidate generation
+Rule-based clinical condition extraction identifies documented diagnoses, adverse events, and complications using deterministic, concept-level regex patterns for broad candidate generation
 
 ---
 
 #### 5.1 Extraction Decisions
 
-The COMPLICATION extraction layer is a recall-first, context-agnostic lexical detector of pathological states. It deliberately over-generates candidates using broad regex pattern matching (re.finditer), avoids deduplication, and defers all semantic interpretation to the downstream transformer.
+The CLINICAL_CONDITION extraction layer is a recall-first, context-agnostic lexical detector of pathological states. It deliberately over-generates candidates using broad regex pattern matching (re.finditer), avoids deduplication, and defers all semantic interpretation to the downstream transformer.
 
-The COMPLICATION entity is intentionally designed as the broadest and most permissive extraction layer, prioritising maximal recall of clinically relevant pathological states. Unlike INTERVENTION or SYMPTOM, this entity captures disease-level concepts, which inherently require contextual interpretation (temporality, certainty, attribution) that cannot be reliably handled with deterministic rules.
+The CLINICAL_CONDITION entity is intentionally designed as the broadest and most permissive extraction layer, prioritising maximal recall of clinically relevant pathological states. Unlike INTERVENTION or SYMPTOM, this entity captures disease-level concepts, which inherently require contextual interpretation (temporality, certainty, attribution) that cannot be reliably handled with deterministic rules.
 
 No Context Filtering (Deliberate limitation)
 
@@ -2333,7 +2333,6 @@ The extractor will include:
 	•	Differential diagnoses
 	•	Historical conditions
 	•	Negated conditions
-	•	Planned or hypothetical complications
 
 Rationale:
 	•	These distinctions require semantic understanding
@@ -2386,21 +2385,45 @@ section extraction:
 
 3. HPI (History of Present Illness)
 	•	Important for:
-	•	Pre-existing complications
+	•	Pre-existing issues
 	•	Admitting diagnoses
 	•	Post-op complications
 
-HPI is the most varibale section because it contains a mix of historical and current information, often compressed into dense clinical narratives. However, it is critical for capturing complications that are present on admission or arise post-operatively, which may not be explicitly stated in the assessment. transformer will be responsible for disambiguating these temporal and contextual nuances, but the rule-based layer must ensure maximal recall of all potential complication mentions from this section while staying reasonably precise. 
+HPI is the most varibale section because it contains a mix of historical and current information, often compressed into dense clinical narratives. However, it is critical for capturing conditions that are present on admission or arise post-operatively, which may not be explicitly stated in the assessment. transformer will be responsible for disambiguating these temporal and contextual nuances, but the rule-based layer must ensure maximal recall of all potential clinical condition mentions from this section while staying reasonably precise. 
 
 4. CHIEF COMPLAINT
 	•	Often contains primary diagnosis label
 	•	Sometimes includes coded diagnoses
 
+regex → broad clinical problem mentions (diagnosis + complications)
+        ↓
+transformer → filters to:
+    - active
+    - relevant to admission
+    - not historical
+
+Your label: "CLINICAL_CONDITION"
+
+Extracting ANY clinical problem:
+
+	•	primary diagnosis
+	•	admitting condition
+	•	complications
+	•	acute issues
+
+That is not SIMPLY “complications”.
+
+It is:
+
+clinical problem / condition / diagnosis space
+
+So we chnage 
+
 ---
 
 #### 5.2 Workflow Implementation
 
-All code logic is implemented in `complication_rules.py`, which defines the functions `extract_complications()`. The main function `extract_complications()` applies the extraction across all sentences in the target sections of a note. 
+All code logic is implemented in `clinical_condition_rules.py`, which defines the functions `extract_clinical_conditions()`. The main function `extract_clinical_conditions()` applies the extraction across all sentences in the target sections of a note. 
 
 **Workflow**
 
@@ -2408,7 +2431,7 @@ All code logic is implemented in `complication_rules.py`, which defines the func
 
 #### 5.3 Validation Metrics and Manual Sample Analysis
 
-Validation was performed using `validate_complication_rules.py` on a random sample of 30 ICU notes. The objective was to verify that the rule-based COMPLICATION extraction behaves as designed under realistic conditions, focusing on section filtering, extraction behaviour, concept mapping, and span alignment.
+Validation was performed using `validate_clinical_condition_rules.py` on a random sample of 30 ICU notes. The objective was to verify that the rule-based CLINICAL_CONDITION extraction behaves as designed under realistic conditions, focusing on section filtering, extraction behaviour, concept mapping, and span alignment.
 
 **Validation Logic**
 
