@@ -2369,6 +2369,33 @@ do not:
 	•	findings
 	•	lab abnormalities
 
+
+section extraction:
+
+1. ASSESSMENT AND PLAN (highest value)
+	•	This is the single most important section
+	•	Contains:
+	•	Problem list
+	•	Diagnoses (often numbered)
+	•	Explicit complications
+
+2. ASSESSMENT
+	•	Often contains:
+	•	Diagnoses (sometimes compressed)
+	•	Clinical problems stated explicitly
+
+3. HPI (History of Present Illness)
+	•	Important for:
+	•	Pre-existing complications
+	•	Admitting diagnoses
+	•	Post-op complications
+
+HPI is the most varibale section because it contains a mix of historical and current information, often compressed into dense clinical narratives. However, it is critical for capturing complications that are present on admission or arise post-operatively, which may not be explicitly stated in the assessment. transformer will be responsible for disambiguating these temporal and contextual nuances, but the rule-based layer must ensure maximal recall of all potential complication mentions from this section while staying reasonably precise. 
+
+4. CHIEF COMPLAINT
+	•	Often contains primary diagnosis label
+	•	Sometimes includes coded diagnoses
+
 ---
 
 #### 5.2 Workflow Implementation
