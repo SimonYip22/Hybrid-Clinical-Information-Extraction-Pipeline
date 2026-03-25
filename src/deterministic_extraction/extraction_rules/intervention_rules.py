@@ -71,7 +71,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "MECHANICAL_VENTILATION": [
-        r"\b(mechanical ventilation|mv|ventilated|on ventilator|niv|non[- ]invasive ventilation|cpap|bipap|psv|pressure support|peep)\b"
+        r"\b(mechanical vent(ilation)?|mv|ventilated|on ventilator|niv|non[- ]invasive vent(ilation)?|cpap|bipap|psv|pressure supp(ort)?|peep)\b"
     ],
 
     "FLUID_THERAPY": [
@@ -79,11 +79,11 @@ INTERVENTION_PATTERNS = {
     ],
 
     "VASOPRESSOR_INOTROPE": [
-        r"\b(vasopressor(s)?|inotrope(s)?|inotropic support|pressor(s)?|norad(renaline)?|norepinephrine|adrenaline|epinephrine|vasopressin|dopamine|dobutamine|neo)\b"
+        r"\b(vasopressor(s)?|inotrope(s)?|inotropic support|pressor(s)?|norad(renaline)?|norepinephrine|adrenaline|epinephrine|(vaso)?pressin|dopamine|dobutamine|neo)\b"
     ],
 
     "ANALGESIA": [
-        r"\b(analgesia|analgesic(s)?|pain relief|morphine|fentanyl|remifentanil|oxycodone|codeine|paracetamol|acetaminophen|ibuprofen)\b"
+        r"\b(analgesia|analgesic(s)?|pain relief|(oro)?morph(ine)?|fent(anyl)?|remifentanil|oxycodone|codeine|paracetamol|acetaminophen|ibuprofen)\b"
     ],
 
     "SEDATION": [
@@ -95,7 +95,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "ANTIBIOTIC_THERAPY": [
-        r"\b(antibiotic(s)?|abx('s|s)?|piperacillin[-/ ]tazobactam|tazocin|meropenem|ceftriaxone|co[- ]amox(iclav)?|augmentin|vancomycin|vanc|gentamicin|doxycycline|metronidazole|flucloxacillin|amoxicillin)\b"
+        r"\b(antibiotic(s)?|abx('s|s)?|piperacillin[-/ ]tazobactam|tazocin|meropenem|ceftriaxone|co[- ]amox(iclav)?|augmentin|vanc(omycin)?|gent(amicin)?|doxy(cycline)?|metro(nidazole)?|fluclox(acillin)?|amox(icillin)?)\b"
     ],
 
     "ANTICOAGULATION": [
@@ -107,11 +107,11 @@ INTERVENTION_PATTERNS = {
     ],
 
     "RENAL_REPLACEMENT_THERAPY": [
-        r"\b(rrt|renal replacement therapy|dialysis|haemodialysis|hemodialysis|cvvh|cvvhd|cvvhdf|dialysed)\b"
+        r"\b(rrt|renal replacement therapy|dialysis|h(a)?emodialysis|cvvh|cvvhd|cvvhdf|dialysed)\b"
     ],
 
     "PROCEDURE_GENERAL": [
-        r"\b(central line(s)?|cvc(s)?|central venous catheter(s)?|art(erial)? line(s)?|a[- ]line(s)?|chest drain(s)?|icc(s)?|intercostal catheter(s)?|picc|naso gastric tube(s)?|ng tube(s)?|ngt(s)?|foley catheter(s)?|urinary catheter(s)?)\b"
+        r"\b(central line(s)?|cvc(s)?|c(entral)?[ ]v(enous) cath(eter)?(s)?|art(erial)? line(s)?|a[- ]line(s)?|chest drain(s)?|icc(s)?|intercostal catheter(s)?|picc|naso gastric tube(s)?|ng tube(s)?|ngt(s)?|foley catheter(s)?|urinary cath(eter)?(s)?)\b"
     ],
 
     "SURGICAL_PROCEDURE": [
@@ -119,7 +119,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "NUTRITION": [
-        r"\b(enteral feed(ing)?|ng feed(ing)?|tube feed(ing)?|parenteral nutrition|tpn|peg feed(ing)?|j tube|jtube|peg)\b"
+        r"\b(enteral feed(ing)?|ng feed(ing)?|tube feed(ing)?|parenteral nutrition|tpn|peg feed(ing)?|j[-]tube|jtube|peg)\b"
     ],
 
     "CARDIOVASCULAR_SUPPORT": [
