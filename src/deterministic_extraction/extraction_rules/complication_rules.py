@@ -1,16 +1,16 @@
 """
-complication_rules.py
+clinical_condition_rules.py
 
 Purpose:
-    Deterministic (rule-based) extraction of COMPLICATION entities from clinical note text.
-    Uses regex pattern matching to generate candidate complication mentions without contextual interpretation.
+    Deterministic (rule-based) extraction of CLINICAL_CONDITION entities from clinical note text.
+    Uses regex pattern matching to generate candidate clinical condition mentions without contextual interpretation.
 
 Pipeline Role (Phase 2):
     - Recall-oriented, lower-precision candidate generator
-    - Produces span-aligned complication candidates for downstream transformer validation
+    - Produces span-aligned clinical condition candidates for downstream transformer validation
 
 Workflow:
-    1. Filter relevant sections (complication-dense regions)
+    1. Filter relevant sections (clinical-condition-dense regions)
     2. Split text into sentences
     3. For each sentence:
         - Apply concept-specific regex patterns to each sentence
@@ -19,7 +19,7 @@ Workflow:
         - Output structured candidate entities
 
 Output:
-    List of structured COMPLICATION entities, each containing:
+    List of structured CLINICAL_CONDITION entities, each containing:
         - Metadata (note_id, subject_id, etc.)
         - Extracted span (entity_text, concept)
         - Provenance (character offsets, sentence, section)
@@ -34,7 +34,7 @@ Design Principles:
     - Maintains exact span traceability for auditability
     - Delegates all contextual interpretation to transformer layer
         - Filtering false positives
-        - Determining whether complication is present, absent, historical, or active
+        - Determining whether clinical condition is present, absent, historical, or active
         - Resolving ambiguity in context and temporal references
 """
 
@@ -48,8 +48,8 @@ from deterministic_extraction.sentence_segmentation import split_into_sentences
 # 1. CONFIG
 # ------------------------------------------------------------
 
-# Target sections for complication extraction
-TARGET_COMPLICATION_SECTIONS = {
+# Target sections for clinical condition extraction
+TARGET_CLINICAL_CONDITION_SECTIONS = {
     "assessment and plan",
     "assessment",
     "hpi",
@@ -57,11 +57,11 @@ TARGET_COMPLICATION_SECTIONS = {
 }
 
 # ------------------------------------------------------------
-# 2. COMPLICATION PATTERNS
+# 2. CLINICAL_CONDITION PATTERNS
 # ------------------------------------------------------------
 
-# Concept-level complication candidates mapped to regex patterns for detection
-COMPLICATION_PATTERNS = {
+# Concept-level clinical condition candidates mapped to regex patterns for detection
+CLINICAL_CONDITION_PATTERNS = {
 
     "infection": [
         r"\b(sep(sis|tic)|infect(ed|ion)|bacter(a)?emia|pneumonia(s)?|urinary tract infection|uti|(endo|myo|peri)carditis|meningitis)\b"
@@ -99,7 +99,7 @@ COMPLICATION_PATTERNS = {
     "cardiac_arrest": [
         r"\b((cardiac|heart|sinus) arrest|asystole|ventricular fibrillation|vf(ib)?|pulseless v(entricular)? tachy(cardia)?|pulseless vt)\b"
     ],
-    "respiratory_complication": [
+    "respiratory_condition": [
         r"\b(pneumothorax|h(a)?emothorax|pleural effusion|pulmonary (o)?edema|aspiration pneumonitis)\b"
     ],
     "vascular": [
@@ -111,10 +111,10 @@ COMPLICATION_PATTERNS = {
 # 3. EXTRACTION FUNCTION
 # ------------------------------------------------------------
 
-def extract_complications(note_id: str, subject_id: str, hadm_id: str, icustay_id:str,
-                          section: str, text:str) -> list[Dict]:
+def extract_clinical_conditions(note_id: str, subject_id: str, hadm_id: str, icustay_id:str,
+                                section: str, text:str) -> list[Dict]:
     """
-    Extract COMPLICATION entities from a section of clinical text using deterministic rules.
+    Extract CLINICAL_CONDITION entities from a section of clinical text using deterministic rules.
 
     Inputs:
         note_id, subject_id, hadm_id, icustay_id:
@@ -128,11 +128,11 @@ def extract_complications(note_id: str, subject_id: str, hadm_id: str, icustay_i
 
     Processing Steps:
         1. Section filtering: 
-            Only process sections likely to contain complication information
+            Only process sections likely to contain clinical condition information
         2. Sentence segmentation: 
             Split section text into sentences for more precise pattern matching
         3. Pattern matching: 
-            For each sentence, apply regex patterns for each complication concept
+            For each sentence, apply regex patterns for each clinical condition concept
         4. Span extraction: 
             For each match, extract the exact text span and character offsets
         5. Deduplication:
@@ -155,7 +155,7 @@ def extract_complications(note_id: str, subject_id: str, hadm_id: str, icustay_i
     results = []
 
     # 1. Section filtering 
-    if section.lower() not in TARGET_COMPLICATION_SECTIONS:
+    if section.lower() not in TARGET_CLINICAL_CONDITION_SECTIONS:
         return results
     
     # 2. Sentence segmentation
@@ -174,7 +174,7 @@ def extract_complications(note_id: str, subject_id: str, hadm_id: str, icustay_i
         seen_spans = set()
 
         # 3. Pattern matching
-        for concept, patterns in COMPLICATION_PATTERNS.items():
+        for concept, patterns in CLINICAL_CONDITION_PATTERNS.items():
 
             # Apply each regex pattern associated with the current concept
             for pattern in patterns:
@@ -208,7 +208,7 @@ def extract_complications(note_id: str, subject_id: str, hadm_id: str, icustay_i
 
                         "entity_text": span_text,
                         "concept": concept,
-                        "entity_type": "COMPLICATION",
+                        "entity_type": "CLINICAL_CONDITION",
 
                         "char_start": start_idx,
                         "char_end": end_idx,
@@ -220,7 +220,7 @@ def extract_complications(note_id: str, subject_id: str, hadm_id: str, icustay_i
                         "validation": {
                             "is_valid": None,
                             "confidence": 0.0,
-                            "task": "complication_active"
+                            "task": "clinical_condition_active"
                         }
                     })
     
