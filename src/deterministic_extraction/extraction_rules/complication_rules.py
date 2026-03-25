@@ -34,7 +34,7 @@ Design Principles:
     - Maintains exact span traceability for auditability
     - Delegates all contextual interpretation to transformer layer
         - Filtering false positives
-        - Determining whether complication is present, absent, historical, or hypothetical
+        - Determining whether complication is present, absent, historical, or active
         - Resolving ambiguity in context and temporal references
 """
 
@@ -91,7 +91,7 @@ COMPLICATION_PATTERNS = {
         r"\b((bowel|intestinal|gastrointestinal|gastric|gi|colon(ic)?) (perforat(ion|ed)|obstruct(ion|ed)|isch(a)?emia|infarct(ion)?|ulcer(ated|ation)?)|sbo)\b"
     ],
     "metabolic": [
-        r"\b(diabetic ketoacidosis|dka|(hypo|hyper)glyc(a)?emi(a|c)|hypo(s)?|(hypo|hyper)natr(a)?emi(a|c)|(hypo|hyper)kal(a)?emi(a|c)|(hypo|hyper)calc(a)?emi(a|c))\b"
+        r"\b(diabetic ketoacidosis|dka|(hypo|hyper)glyc(a)?emi(a|c)|(hypo|hyper)natr(a)?emi(a|c)|(hypo|hyper)kal(a)?emi(a|c)|(hypo|hyper)calc(a)?emi(a|c))\b"
     ],
     "hepatic_failure": [
         r"\b((hepatic|liver) failure|acute liver (injury|failure)|alf|ali)\b"
