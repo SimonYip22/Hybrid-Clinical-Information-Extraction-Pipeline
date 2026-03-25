@@ -69,14 +69,14 @@ CLINICAL_CONDITION_PATTERNS = {
     "shock": [
         r"\b((septic|cardiogenic|hypovol(a)?emic|distributive|hypotensive|neurogenic) shock|anaphyla(xis|ctic))\b"
     ],
-    "respiratory_failure": [
-        r"\b(resp(iratory)? failure|acute respiratory distress syndrome|ards|hypox(a)?emi(a|c)|hypercapni(a|c))\b"
+    "respiratory": [
+        r"\b(resp(iratory)? failure|acute respiratory distress syndrome|ards|hypox(a)?emi(a|c)|hypercapni(a|c)|pneumothorax|h(a)?emothorax|pleural effusion|pulmonary (o)?edema|aspiration pneumonitis)\b"
     ],
     "cardiovascular": [
         r"\b(myocardial infarct(ion)?|mi|acute coronary syndrome|acs|unstable angina|ua|heart failure|hf|acute ventricular failure|avf|hypertensive crisis|cardiomyopathy)\b"
     ],
     "arrhythmia": [
-        r"\b(arrhythmia(s)?|a(trial)? fib(rillation)?|af|v(entricular)? tachy(cardia)?|vtach|vt|supraventricular tachycardia|svt|a(trial)? tachy(cardia)?)\b"
+        r"\b(arrhythmia(s)?|a(trial)?[- ]fib(rillation)?|af|v(entricular)? tachy(cardia)?|vtach|vt|supraventricular tachycardia|svt|a(trial)? tachy(cardia)?)\b"
     ],
     "renal_failure": [
         r"\b(renal failure|acute kidney injury|aki)\b"
@@ -88,7 +88,7 @@ CLINICAL_CONDITION_PATTERNS = {
         r"\b(h(a)?emorrhag(e|es|ing)|bleed(s|ing)?|h(a)?ematoma|sah)\b"
     ],
     "gastrointestinal": [
-        r"\b((bowel|intestinal|gastrointestinal|gastric|gi|colon(ic)?) (perforat(ion|ed)|obstruct(ion|ed)|isch(a)?emia|infarct(ion)?|ulcer(ated|ation)?)|sbo)\b"
+        r"\b((bowel|intestinal|gastrointestinal|gastric|gi|colon(ic)?) (perforat(ion|ed)|obstruct(ion|ed)|isch(a)?emia|infarct(ion)?|ulcer(ated|ation)?)|sbo|cholecystitis)\b"
     ],
     "metabolic": [
         r"\b(diabetic ketoacidosis|dka|(hypo|hyper)glyc(a)?emi(a|c)|(hypo|hyper)natr(a)?emi(a|c)|(hypo|hyper)kal(a)?emi(a|c)|(hypo|hyper)calc(a)?emi(a|c))\b"
@@ -98,9 +98,6 @@ CLINICAL_CONDITION_PATTERNS = {
     ],
     "cardiac_arrest": [
         r"\b((cardiac|heart|sinus) arrest|asystole|ventricular fibrillation|vf(ib)?|pulseless v(entricular)? tachy(cardia)?|pulseless vt)\b"
-    ],
-    "respiratory_condition": [
-        r"\b(pneumothorax|h(a)?emothorax|pleural effusion|pulmonary (o)?edema|aspiration pneumonitis)\b"
     ],
     "vascular": [
         r"\b(aortic dissection|aortic (aneurysm|rupture)|aaa|deep vein thrombosis|dvt|pulmonary embol(ism|us)|pe|thromboembolism|vte)\b"
@@ -143,7 +140,7 @@ def extract_clinical_conditions(note_id: str, subject_id: str, hadm_id: str, icu
 
     Output:
         List[Dict]:
-            Each dict represents one COMPLICATION entity with:
+            Each dict represents one CLINICAL_CONDITION entity with:
                 - Span-aligned extraction (entity_text, char_start, char_end)
                 - Concept label
                 - Context (sentence, section)
