@@ -73,10 +73,10 @@ CLINICAL_CONDITION_PATTERNS = {
         r"\b(resp(iratory)? failure|acute respiratory distress syndrome|ards|hypox(a)?emi(a|c)|hypercapni(a|c)|pneumothorax|h(a)?emothorax|pleural effusion|pulmonary (o)?edema|aspiration pneumonitis)\b"
     ],
     "cardiovascular": [
-        r"\b(myocardial infarct(ion)?|mi|acute coronary syndrome|acs|unstable angina|ua|heart failure|hf|acute ventricular failure|avf|hypertensive crisis|cardiomyopathy)\b"
+        r"\b(myocardial infarct(ion)?|mi|acute coronary syndrome|acs|unstable angina|heart failure|hf|acute ventricular failure|avf|hypertensive crisis|cardiomyopathy)\b"
     ],
     "arrhythmia": [
-        r"\b(arrhythmia(s)?|a(trial)?[- ]fib(rillation)?|af|v(entricular)? tachy(cardia)?|vtach|vt|supraventricular tachycardia|svt|a(trial)? tachy(cardia)?)\b"
+        r"\b(arrhythmia(s)?|a(trial)?[- ]fib(rillation)?|af|v(entricular)? tachy(cardia)?|v[- ]tach(y)?||supraventricular tachycardia|svt|a(trial)? tachy(cardia)?)\b"
     ],
     "renal_failure": [
         r"\b(renal failure|acute kidney injury|aki)\b"
