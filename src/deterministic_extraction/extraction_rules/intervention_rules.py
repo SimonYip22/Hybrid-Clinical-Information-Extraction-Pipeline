@@ -119,7 +119,7 @@ INTERVENTION_PATTERNS = {
     ],
 
     "NUTRITION": [
-        r"\b(enteral feed(ing)?|ng feed(ing)?|tube feed(ing)?|parenteral nutrition|tpn|peg feed(ing)?|j[-]tube|jtube|peg)\b"
+        r"\b(enteral feed(ing)?|ng feed(ing)?|tube feed(ing)?|parenteral nutrition|tpn|peg feed(ing)?|j[- ]tube|jtube|peg)\b"
     ],
 
     "CARDIOVASCULAR_SUPPORT": [
