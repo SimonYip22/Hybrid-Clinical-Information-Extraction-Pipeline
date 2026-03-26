@@ -2419,6 +2419,8 @@ clinical problem / condition / diagnosis space
 
 So we chnage 
 
+
+
 ---
 
 #### 5.2 Workflow Implementation
@@ -2438,5 +2440,15 @@ Validation was performed using `validate_clinical_condition_rules.py` on a rando
 ---
 
 **Key Findings**
+
+Remove certain abbreviations as too noisy , validation debugging confirmed that UA and VT generate a high volume of false positives with low recoverable precision downstream.
+
+removed UA (mistaken for urine analysis when we meant unstable angina) and VT (tidal volume captured instead of ventricular tachycardia) from the regex patterns.
+Your debugging confirmed they generate real ambiguity, not theoretical risk.
+
+This is the correct decision:
+	•	High false-positive risk
+	•	Low recoverable precision downstream
+	•	Not worth keeping in a recall-first system
 
 ---
