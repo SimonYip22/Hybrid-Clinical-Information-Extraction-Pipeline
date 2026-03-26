@@ -293,8 +293,8 @@ if DEBUG_ABBREVIATIONS:
     if not abbreviation_hits:
         print("No abbreviation matches found.")
 
-abbr_counter = Counter([h["entity"].lower() for h in abbreviation_hits])
+    abbr_counter = Counter([h["entity"].lower() for h in abbreviation_hits])
 
-print("\nABBREVIATION FREQUENCY:")
-for abbr, count in abbr_counter.most_common():
-    print(f"{abbr}: {count}")
+    print("\nABBREVIATION FREQUENCY:")
+    for abbr, count in abbr_counter.most_common():
+        print(f"{abbr}: {count}")
