@@ -76,7 +76,7 @@ CLINICAL_CONDITION_PATTERNS = {
         r"\b(myocardial infarct(ion)?|mi|acute coronary syndrome|acs|unstable angina|heart failure|hf|acute ventricular failure|avf|hypertensive crisis|cardiomyopathy)\b"
     ],
     "arrhythmia": [
-        r"\b(arrhythmia(s)?|a(trial)?[- ]fib(rillation)?|af|v(entricular)? tachy(cardia)?|v[- ]tach(y)?||supraventricular tachycardia|svt|a(trial)? tachy(cardia)?)\b"
+        r"\b(arrhythmia(s)?|a(trial)?[- ]fib(rillation)?|af|v(entricular)? tachy(cardia)?|v[- ]tach(y)?|supraventricular tachycardia|svt|a(trial)? tachy(cardia)?)\b"
     ],
     "renal_failure": [
         r"\b(renal failure|acute kidney injury|aki)\b"
