@@ -2,27 +2,71 @@
 run_extraction_pipeline.py
 
 Purpose:
-    Orchestrates the deterministic extraction pipeline for all 3 entities from clinical notes.
-    Integrates preprocessing, section extraction, sentence segmentation, and regex-based candidate generation.
-    Produces structured outputs for downstream transformer prompt tuning for validation.
+    Orchestrates the deterministic extraction pipeline for all 3 entity types
+    (SYMPTOM, INTERVENTION, CLINICAL_CONDITION) from ICU clinical notes.
+    Integrates preprocessing, section extraction, sentence segmentation, and
+    regex-based candidate generation.
+    Produces structured, high-recall candidate outputs for downstream transformer
+    validation and classification.
 
 Run:
     export PYTHONPATH=$(pwd)/src
     python3 scripts/deterministic_extraction/run_extraction_pipeline.py
 
 Workflow: 
-    For each clinical note:
+    Load 10,000 sample of clinical notes from ICU corpus CSV -> For each note, run through the following steps:
         1. Preprocess note text (cleaning, normalisation)
-        2. Extract sections and filter for target sections relevant to each entity type
-        3. Split filtered sections into sentences
-        4. For each sentence:
-            - Apply regex-based extraction rules for SYMPTOM, INTERVENTION, and CLINICAL_CONDITION
-            - Generate candidate entities with metadata and provenance
-        5. Aggregate candidates across sentences and sections for the note
+        2. Extract sections (structured segmentation of note text)
+        3. For each section:
+            - Apply deterministic extraction rules for:
+                • SYMPTOM
+                • INTERVENTION
+                • CLINICAL_CONDITION
+            - Each extractor internally:
+                a. Filters relevant sections
+                b. Splits text into sentences
+                c. Applies regex-based pattern matching
+                d. Generates span-aligned candidate entities
+        4. Aggregate all candidates across sections into a flat note-level list
+        5. Write each candidate entity as a JSON line to output file
 
 Outputs:
+    1. JSONL File (primary output):
+        Path: data/processed/extraction_candidates.jsonl
 
+        Format:
+            - One JSON object per line (newline-delimited JSON)
+            - Each line represents a single extracted entity
+        Design:
+            - Flat structure (no nesting by note)
+            - Multiple entities per note allowed
+            - Optimised for transformer ingestion (one entity = one row)
 
+    2. Terminal Validation Summary (secondary output):
+        Printed after pipeline execution, including:
+            - Total notes processed
+            - Section extraction coverage
+            - Entity extraction coverage
+            - Notes with zero extractions
+            - Per-entity-type coverage (symptom/intervention/condition)
+            - Total extraction counts
+            - Average entities per note (non-empty)
+            - Sample of 5 notes with per-entity counts
+
+    3. Sample Output (debugging aid):
+        - First 5 processed notes with:
+            • note_id
+            • number of extracted symptoms/interventions/conditions
+            • total entities per note
+
+Design Principles:
+    - Deterministic and reproducible (fixed random seed)
+    - Transformer-ready output format (flat, structured, metadata-rich)
+
+Notes:
+    - `note_id` is synthetically generated due to absence in source data
+    - Assumes ICU corpus contains required columns:
+        SUBJECT_ID, HADM_ID, ICUSTAY_ID, TEXT
 """
 # ------------------------------------------------------------
 # 1. IMPORTS
