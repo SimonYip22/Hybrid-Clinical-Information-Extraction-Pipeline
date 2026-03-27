@@ -4,7 +4,7 @@
 
 This file provides a concise, outcome-focused summary of Phase 1 (Corpus Construction and Structural Profiling).
 
-It synthesizes:
+It synthesises:
 
 - Cohort construction logic and final corpus properties
 - Manual structural findings
@@ -12,7 +12,7 @@ It synthesizes:
 - Boundary stress-testing outcomes
 - Architectural implications for Phase 2
 
-Where `decisions.md` contains full methodological detail, rationale, and stepwise justification, this file records the consolidated results and confirmed conclusions of Phase 1.
+Where `phase1_decisions.md` contains full methodological detail, rationale, and stepwise justification, this file records the consolidated results and confirmed conclusions of Phase 1.
 
 ---
 
