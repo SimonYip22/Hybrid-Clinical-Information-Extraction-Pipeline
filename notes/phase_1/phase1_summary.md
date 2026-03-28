@@ -1,6 +1,6 @@
 # Phase 1 — Corpus Profiling Summary
 
-## 1. Purpose of This Document
+# 1. Purpose of This Document
 
 This file provides a concise, outcome-focused summary of Phase 1 (Corpus Construction and Structural Profiling).
 
