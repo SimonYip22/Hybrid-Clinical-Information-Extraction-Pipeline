@@ -10,6 +10,8 @@
 
 This repository presents a dual-architecture natural language processing (NLP) pipeline combining deterministic rule-based entity extraction with context-aware transformer (ClinicalBERT) validation to produce structured, schema-aligned JSON outputs from 162,296 unstructured ICU progress reports over 32,910 unique ICU stays, suitable for downstream machine learning applications.
 
+Extracted 3 entity types from 10,000 reports to generate 47,487 entities for transformer validation.
+
 Rule-based extraction ensures high-precision identification of clinically relevant patterns, while the fine-tuned ClinicalBERT classifier provides negation handling, entity validation, and contextual disambiguation.
 
 This focused on classical clinical NLP pipeline development rather than ontology mapping, interoperability standards, or production deployment. Model training was performed using credentialed access to the MIMIC-III dataset via PhysioNet, ensuring realistic clinical data handling.
