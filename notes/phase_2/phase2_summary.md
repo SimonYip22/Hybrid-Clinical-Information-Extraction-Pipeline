@@ -659,18 +659,25 @@ The system prioritises:
 
 ### 13.4 Validation Outcome
 
+Full raw outputs in `extraction_candidates.jsonl` and validation metrics in `phase2_decisions.md`
+
 **System-level behaviour:**  
-- ~63% of notes contain valid sections  
-- ~44% of notes produce at least one entity  
+- 10,000 notes processed successfully
+- ~63% of notes contain valid sections (6,272)  
+- ~44% of notes produce at least one entity (4,407)
 - Empty outputs are expected due to strict section filtering  
 
 **Entity distribution:**  
-- `INTERVENTION` → highest coverage (dense care-plan language)  
-- `CLINICAL_CONDITION` → strong diagnostic signal  
-- `SYMPTOM` → lower yield due to narrow section scope  
+- `INTERVENTION` → highest coverage due to dense care-plan language (3,959 notes with interventions, 20,650 total extractions)
+- `CLINICAL_CONDITION` → strong diagnostic signal (2,812 notes with conditions, 17,165 total extractions)
+- `SYMPTOM` → lower yield due to narrow section scope (1,722 notes with symptoms, 9,672 total extractions)
 
 **Extraction density:**  
-- ~11 entities per non-empty note  
+- Average per entity type per note:
+  - `SYMPTOM`: 5.62 entities per note 
+  - `INTERVENTION`: 5.22 entities per note
+  - `CLINICAL_CONDITION`: 6.10 entities per note
+- ~11 entities per non-empty note (10.78) 
 - Confirms high-recall candidate generation  
 
 **Output quality:**  
