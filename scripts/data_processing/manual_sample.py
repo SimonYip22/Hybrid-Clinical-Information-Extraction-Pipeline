@@ -31,11 +31,15 @@ Output:
 """
 
 import pandas as pd
+from pathlib import Path
+
+OUTPUT_PATH = "data/sample/manual_sample_30.csv"
+Path(OUTPUT_PATH).parent.mkdir(parents=True, exist_ok=True)
 
 df = pd.read_csv("data/processed/icu_corpus.csv")
 
 sample_30 = df.sample(n=30, random_state=42)
 
-sample_30.to_csv("data/sample/manual_sample_30.csv", index=False)
+sample_30.to_csv(OUTPUT_PATH, index=False)
 
-print("Manual sample of 30 notes generated and saved to data/sample/manual_sample_30.csv")
+print("Manual sample of 30 notes generated and saved to", OUTPUT_PATH)
