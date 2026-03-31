@@ -730,209 +730,122 @@ This is:
 
 
 
-Manual annotation
+---
 
-CLINICAL_CONDITION
+# Clinical Entity Labeling Guidelines
 
-TRUE  → actively contributing to current admission
-FALSE → PMHx, chronic, resolved, historical, negated, or uncertain
+## 1. symptom_presence
 
-Where errors will happen (important)
+**Definition:** Does the patient currently exhibit the symptom at the time of the note?
 
-The model will struggle with:
+**Example:**
+- “Patient denies pain today” → False  
+- “Patient is complaining of nausea” → True  
 
-1. Implicit context
+**Type:** **State-based** ✅
 
-“patient with diabetes admitted for sepsis”
+**Justification:**  
+Symptoms are inherently real-time; downstream tasks like monitoring, alerts, or clinical decision support (CDS) require the **current status**, not historical mentions.
 
-	•	diabetes = FALSE
-	•	sepsis = TRUE
+**Edge Cases:**
+- Historical or chronic symptoms → FALSE  
+- Provoked symptoms not currently present (e.g., “asked to cough”) → FALSE  
+- Ambiguous phrasing like “increased with cough” → default TRUE if unclear, note as potential edge case  
+- Medication indication mentions (e.g., “PRN nausea”) → FALSE  
 
-⸻
+---
 
-2. Mixed clauses (your example type)
+## 2. intervention_performed
 
-“with HTN … found to have NSTEMI”
+**Definition:** Has the intervention been performed at any point **during the admission up to this note**?
 
-Requires:
-	•	ignoring earlier entities
-	•	focusing on later clause
+**Example:**
+- “Received 2 units PRBCs in ED” → True  
+- “Plan to start heparin” → False  
 
-⸻
+**Type:** **Event-based** ✅
 
-3. Ambiguous phrasing
+**Justification:**  
+Interventions are often documented retrospectively. Even if completed by the time of the note, they still count as having occurred. This is useful for retrospective analyses, modeling treatment patterns, or cohort studies.
 
-“possible pneumonia”
+**Rules:**
+- TRUE → intervention has actually been carried out (medication administered, procedure performed, imaging done, weaning actively occurring)  
+- FALSE → planned, hypothetical, historical, conditional, guideline/consideration only  
+- PRN medications → only TRUE if explicitly confirmed administered  
 
-	•	depends on your rule:
-	•	usually FALSE (uncertain)
+**Edge Cases:**
+- **Temporal indicators**: Phrases like “post antibiotics”, “received prior” → FALSE for state-based queries, TRUE for event-based  
+- **Prophylaxis vs treatment**: “Prophylaxis: Subcutaneous heparin” → FALSE; “Started heparin subq for DVT prophylaxis” → TRUE  
+- **Additional / prior interventions** → FALSE unless explicitly stated as ongoing  
+- **Weaning or continuation** → TRUE if actively being performed  
 
-⸻
+---
 
-7. Why your design still works
+## 3. clinical_condition_active
 
-Because:
-	•	You already separated extraction from validation
-	•	The transformer only needs to:
-	•	filter candidates
-	•	not discover them
+**Definition:** Is the condition **currently active and affecting the patient**?
 
-This reduces difficulty significantly.
+**Example:**
+- “Resolved pneumonia” → False  
+- “Worsening ARDS” → True  
 
-⸻
+**Type:** **State-based** ✅
 
-8. Will 600 samples be enough for this?
+**Justification:**  
+Acute conditions need to reflect **current patient status**. This is aligned with real-time decision-making, risk assessment, and condition tracking.
 
-Yes, because:
-	•	Patterns are repetitive in ICU notes
-	•	Clinical phrasing is structured
-	•	You are not learning language from scratch
+**Rules:**
+- TRUE → explicitly stated, currently active, contributing to admission  
+- FALSE → historical, resolved, chronic, negated, uncertain, or only mentioned as causal/explanatory  
 
-But:
-	•	CLINICAL_CONDITION will be your weakest class
-	•	Expect:
-	•	lower precision
-	•	more edge-case errors
+**Edge Cases:**
+- Implicit context: “Patient with diabetes admitted for sepsis” → diabetes FALSE, sepsis TRUE  
+- Mixed clauses: “With HTN … found to have NSTEMI” → focus on current clause for TRUE/FALSE  
+- Uncertain phrases: “Possible pneumonia” → FALSE  
+- Header-like extractions: ALL CAPS section header → FALSE unless sentence confirms active condition  
+- Underlying causes: Only TRUE if explicitly causing current abnormality/clinical issue  
 
+---
 
-Edge Case Example – Implicit vs Active Conditions
-	•	Sentence: "Trop bump likely demand ischemia from anemia and sepsis physiology."
-	•	Entity: sepsis
-	•	Decision: is_valid = False
-	•	Reasoning:
-	•	The mention of “sepsis physiology” describes an effect of sepsis, not an explicit active diagnosis.
-	•	Phrases like “likely from X” or “effects of X” should not be labeled as active conditions.
-	•	Only explicitly stated, currently active conditions are labeled True (e.g., “patient admitted with sepsis”, “currently septic”).
+## ✅ Overall Evaluation
 
-Takeaway: Transformers need to distinguish referential mentions or causal explanations from true active clinical conditions. Rule-based extraction often overcalls these cases.
+| Label                     | Type       | Correct? |
+|----------------------------|------------|----------|
+| symptom_presence           | State      | ✅       |
+| intervention_performed     | Event      | ✅       |
+| clinical_condition_active  | State      | ✅       |
 
+**Acceptable & Justifiable:** Yes. This approach aligns with clinical reasoning, NLP labeling standards, and practical use in downstream modeling.
 
-“…start ceftriaxone for presumptive UTI…”
+---
 
-Analysis:
-	•	“presumptive UTI” → uncertain, not confirmed
-	•	No statement that the UTI is actively diagnosed or causing current admission issues
+## Key Points
 
-“Goal to have improved rate control in the peri-MI period.”
+- **State-based labels** → reflect **current status** at the time of note  
+- **Event-based labels** → reflect **history of actions** during admission  
+- This dual approach is standard, defensible, and consistent with real-world clinical use cases  
 
-Analysis:
-	•	This is discussing management/goals for a past MI, not an active MI causing the current admission.
-	•	It’s a resolved/historical condition, not contributing to current admission.
+---
 
-“Likely SBP but also known UTI and possible PNA.”
+## Example Labeling Table
 
-Analysis:
-	•	“Known UTI” → this refers to a pre-existing or previously diagnosed UTI, not necessarily active or currently contributing.
-
-
-Edge Case: Header-like Extractions
-	•	Issue: Sometimes the extraction picks up text that is a section header rather than part of a sentence describing the patient’s active condition.
-	•	Impact: Even if the entity is a real clinical concept (e.g., MYOCARDIAL INFARCTION), the transformer should not label it as active unless the sentence text confirms current occurrence.
-	•	Rule:
-	•	FALSE if the extracted entity appears to be a header (all caps, followed by a colon, comma, or line break) and the sentence does not explicitly describe an active condition.
-	•	TRUE only if the sentence text clearly confirms that the condition is currently active or contributing to the admission.
-	•	Example:
-	•	Entity: MYOCARDIAL INFARCTION
-	•	Sentence: "MYOCARDIAL INFARCTION, ACUTE (AMI, STEMI, NSTEMI) 80 y/o woman with hx alzheimers transfered with dynamic EKG changes/mild troponin leak equivocal for NSTEMI with decision for medical management."
-	•	Label: FALSE → header + sentence ambiguous
-
-Edge Case – “Underlying Infection” or Cause-Linked Mentions
-	•	Scenario: The entity mentions an infection as the underlying cause of an acute physiological effect (e.g., hypoperfusion, elevated lactate).
-	•	Decision Rule:
-	•	TRUE → If the infection is actively causing a current abnormality or clinical issue.
-	•	FALSE → If the infection is only historical, chronic, or mentioned as a baseline without causing acute derangement.
-	•	Rationale: The transformer needs to distinguish between causal references and explicit active conditions. Words like “underlying” can appear in either context, so annotation must consider the linked effect in the sentence.
-	•	Example:
-	•	Sentence: “in setting of hypoperfusion d/t underlying infection (lactate previously normal even in the setting of his liver disease).”
-	•	Entity: infection → TRUE because it is causing current hypoperfusion.
-	•	Notes: Treat phrases like “likely from X” or “effects of X” differently: these are usually FALSE unless they clearly indicate a current active condition.
-
-Edge Case – Header with Differential:
-
-If the extracted entity appears in a header or section title followed by a differential list (e.g., “# Encephalopathy: Differential includes …”), do not label as active, even if the patient might clinically have the condition. Only explicitly stated, currently active diagnoses are TRUE.
-
-
-Edge Case – Single-Term / No Context Mentions:
-If the sentence contains only the entity (e.g., “Sepsis”) with no contextual information, do not assume it is active. Label as FALSE unless the sentence explicitly confirms current presence.
-
-
-
-
-
-For SYMPTOM entities:
-- Count symptom as present (TRUE) if:
-  - Mentioned as currently occurring
-  - Mentioned as contributing factor to another symptom
-- Count as absent (FALSE) if:
-  - Explicitly denied
-  - Historical or resolved
-  - Only used as a provocation (e.g., "patient asked to cough")
-
-In ambiguous phrasing like "increased with cough" without "asked to cough", you can default to TRUE, but note it as a potential edge case.
-
-"nothing out of ordinary from usual chronic abdominal pain" → this indicates the symptom is not new or actively contributing to the current admission, it’s just part of their baseline or chronic history.
-- For SYMPTOM, TRUE only applies to symptoms that are currently occurring and clinically relevant, not chronic or baseline complaints.
-
-
-Edge Case Example – Medication Indications vs Active Symptoms
-	•	The note is listing current medications and their indications, not current symptoms.
-	•	“PRN nausea” and “q6H prn nausea/anxiety” indicate the patient takes these medications as needed, but there is no evidence the patient is currently experiencing nausea.
-	•	Per your symptom rules:
-	•	TRUE: symptom is currently occurring or contributing to admission.
-	•	FALSE: symptom is historical, resolved, negated, or only mentioned as a medication indication or provocation.
-
-✅ Conclusion: is_valid = False.
-
-This is exactly the type of edge case where the transformer might overcall if it just looks for the keyword “nausea” without context.
-
-
-INTERVENTION
-
-TRUE: Action is actively performed on the patient (medication administered, procedure performed, imaging done, weaning off meds meaning theyre currently performaing it).
-FALSE: Intervention is planned, historical, conditional, or mentioned as monitoring/guideline/consideration only.
-
-	•	If the text describes ongoing, real actions the patient is currently receiving, label TRUE.
-	•	If it’s planned, hypothetical, or past, label FALSE.
-
-So for weaning vasopressors, even though the intervention started earlier, it is still active and being performed, so is_valid = True.
-
-The transformer will learn that phrases like "wean", "continue", "administered", "received" indicate actual performed interventions, whereas "plan to", "if tolerated", "consider" indicate not performed.
-
-“- will start treatment for ESBL E. coli bacteremia with meropenem desensitization protocol …”
-
-	•	The wording “will start” explicitly indicates future action.
-	•	According to your INTERVENTION rules, only interventions that have actually been carried out are True. Planned/future interventions are False.
-
-“Elevated lactate at 3 on ABG and bloody secretions from mouth and ETT.”
-
-Interpretation:
-	•	The presence of secretions from the ETT implies that the ETT has already been placed, because secretions only come after insertion.
-    In this note, the ETT is present during the documented ICU stay, as evidenced by “secretions from … ETT.” That implies it is actively in place now, not just a past event.
-	•	Even if it was placed earlier in the admission, the intervention is currently affecting the patient, so it counts as TRUE per your rule: “action is actively performed on the patient.”
-
-The text says: “24 hrs post antibiotics” — this explicitly indicates the antibiotics have already been administered.
-	•	According to your intervention rules:
-	•	TRUE: intervention is actively performed (medication administered, procedure done, imaging done, or weaning currently happening).
-	•	FALSE: planned, historical, conditional, or guideline-only.
-	•	Even though the note is reflecting retrospectively (“post antibiotics”), it refers to an intervention that was actually performed during this admission, so it counts as TRUE.
-
-
-	•	Entity: Morphine
-	•	Sentence: "Neurologic: Neuro checks Q: 2 hr, Morphine prn."
-	•	Analysis:
-	•	prn (pro re nata) indicates as needed, so the medication may or may not have been administered yet.
-	•	According to your INTERVENTION rules:
-	•	TRUE → actively performed
-	•	FALSE → planned, historical, conditional, guideline/consideration only
-	•	Since prn does not guarantee the drug was given, this counts as planned/conditional, not actively performed.
-	•	Label: False for intervention_performed
-
-Rule for prn medications:
-	•	If the note says medication prn and there’s no confirmation it was actually administered, mark FALSE.
-	•	If the note confirms administration (e.g., “Morphine given 2 mg IV”), mark TRUE.
-
-Edge Case – “Additional” Without Confirmation:
-The word “additional” implies prior intervention but does not confirm it within the sentence. Treat as FALSE unless prior or ongoing administration is explicitly stated.
-
-edge case - prophylaxis vs treatment
-    •	“Prophylaxis: Subutaneous heparin” → this is False because prophylaxis doesnt explicitly mean the patient is recieving it, it’s more of a guideline or consideration or plan. If the note said “started on heparin sub q for DVT prophylaxis” then it would be True because it confirms the intervention is being performed.
+| Sentence / Entity                                        | symptom_presence | intervention_performed | clinical_condition_active | Notes |
+|----------------------------------------------------------|-----------------|----------------------|-------------------------|-------|
+| “Patient is complaining of nausea”                       | True            | N/A                  | N/A                     | Symptom currently present |
+| “Received 2 units PRBCs in ED”                           | N/A             | True                 | N/A                     | Intervention occurred |
+| “Plan to start heparin”                                  | N/A             | False                | N/A                     | Future intervention |
+| “Resolved pneumonia”                                     | N/A             | N/A                  | False                   | Condition no longer active |
+| “Worsening ARDS”                                         | N/A             | N/A                  | True                    | Currently active condition |
+| “Morphine PRN; no administration documented”            | N/A             | False                | N/A                     | Not confirmed |
+| “Weaning vasopressors ongoing”                           | N/A             | True                 | N/A                     | Active intervention |
+| “24 hrs post antibiotics”                                 | N/A             | False (state-based)  | N/A                     | Past intervention, not ongoing |
+
+---
+
+**Conclusion:**  
+
+- **symptom_presence** → state-based  
+- **intervention_performed** → event-based  
+- **clinical_condition_active** → state-based  
+
+This framework is consistent, defensible, and provides clear guidance for both manual annotation and transformer-based filtering.
