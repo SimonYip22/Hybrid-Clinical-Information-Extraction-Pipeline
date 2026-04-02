@@ -2,18 +2,21 @@
 sample_entities.py
 
 Purpose:
-    - Generate a balanced, annotation-ready dataset of extracted clinical entities for Phase 3 transformer validation.
-    - Convert raw JSONL extraction outputs into a structured tabular format suitable for manual labeling.
-    - Ensure equal representation of each entity type to support unbiased model training and evaluation.
+    - Generate a balanced, annotation-ready dataset of extracted clinical entities
+      for Phase 3 transformer validation.
+    - Convert raw JSONL extraction outputs into a structured tabular format
+      suitable for manual labeling.
+    - Ensure equal representation of each entity type to support unbiased sampling.
 
 Workflow:
     1. Load extraction candidates from JSONL file (1 line = 1 entity).
-    2. Flatten nested JSON structure and extract only relevant fields:
-    - note_id, entity_text, entity_type, sentence_text, negated, task
-    3. Convert records into a pandas DataFrame for processing.
-    4. Perform stratified sampling:
-    - Sample N_PER_CLASS (200) entities per entity type:
-        SYMPTOM, INTERVENTION, CLINICAL_CONDITION
+    2. Flatten nested JSON structure and extract relevant fields:
+        - note_id, section, concept, entity_text, entity_type,
+          sentence_text, negated, task, confidence
+    3. Convert records into a pandas DataFrame.
+    4. Perform balanced sampling by entity_type:
+        - Sample N_PER_CLASS (200) entities for each:
+          SYMPTOM, INTERVENTION, CLINICAL_CONDITION
     5. Concatenate sampled subsets into a single dataset.
     6. Shuffle dataset to mix entity types and reduce annotation bias.
     7. Add empty `is_valid` column for manual ground truth annotation.
@@ -21,18 +24,21 @@ Workflow:
 Outputs:
     - annotation_sample_raw.csv:
         - Freshly generated sample for annotation (overwritten each run)
-        - Used as the source of truth for sampling
 
     - annotation_sample_labeled.csv:
         - Copy of the sample intended for manual annotation
         - Preserved across runs to prevent loss of annotated labels
 
 Notes:
-    - The `task` field is extracted from the nested `validation` object using a safe fallback:
-    row.get("validation", {}).get("task")
-    to prevent errors if the field is missing.
-    - The `negated` field is retained for later comparison with rule-based outputs but is NOT used for training labels.
-    - Manual annotation should populate `is_valid` with TRUE/FALSE (binary classification target).
+    - The `task` field is extracted from the nested `validation` object using:
+        row.get("validation", {}).get("task")
+      This prevents errors if the field is missing.
+    - The `confidence` field is extracted with a default of 0.0.
+    - The `negated` field is retained for comparison with rule-based outputs,
+      but is NOT used as a training label.
+    - Manual annotation should populate `is_valid` with True/False (boolean),
+      which serves as the binary classification target for downstream models.
+    - Sampling is balanced by `entity_type`, not by `task`.
 """
 
 import json
@@ -116,7 +122,7 @@ sample_df = sample_df.sample(frac=1, random_state=42).reset_index(drop=True)
 # -------------------------
 
 # Add empty column for manual annotation labels (ground truth)
-sample_df["is_valid"] = ""
+sample_df["is_valid"] = None
 
 print(f"Final sample size: {len(sample_df)}")
 
