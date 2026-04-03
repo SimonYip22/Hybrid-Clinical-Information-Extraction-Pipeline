@@ -703,18 +703,320 @@ This pipeline ensures:
 
 ---
 
+## Manual Annotation
 
+### 1. Objective
 
+To define a clear, consistent, and reproducible framework for assigning binary labels (`is_valid = True/False`) to extracted clinical entities.
 
+The goal is to:
+- Ensure high-quality ground truth labels for transformer training  
+- Minimise annotation variability and drift
+- Standardise interpretation of clinical language across entity types  
+- Align task labels with clinically meaningful and model-relevant definitions 
 
-
-
-
-
-
+Annotation is performed strictly based on sentence-level context, ensuring that labels reflect the information explicitly present in the text rather than inferred assumptions.
 
 ---
 
+### 2. Annotation Framework and Principles
+
+- **Sentence-level grounding**  
+  - Labels are assigned using the full `sentence_text`  
+  - The `entity_text` is interpreted only within this context
+
+- **Context over metadata**  
+  - `section` may assist interpretation in ambiguous cases, but is not determinative
+  - `concept` can be used to verify whether the extracted entity aligns with the intended clinical meaning
+  - If the entity is clearly mis-extracted (i.e. does not match the intended concept in context), label as `False`
+
+- **Explicit evidence over inference**  
+  - Labels must be based only on clearly stated information 
+  - Do not infer presence, action, or activity from typical clinical patterns
+
+- **Consistency over intuition**  
+  - Apply rules systematically, even if clinically imperfect  
+  - Prioritise reproducibility over subjective clinical judgement
+  - This ensures learnable and reproducible patterns for the model  
+
+- **Ambiguity handling (conservative bias)**  
+  - Default to conservative interpretation  
+  - Uncertain or implied mentions are typically labeled `False` unless clearly active/performed  
+
+- **Temporal consistency**
+	-	Interpret timing strictly based on wording in the sentence
+	-	Do not assume recency or continuity unless explicitly stated
+	-	This is critical for:
+	  -	State-based tasks (current vs past)
+	  -	Event-based tasks (performed vs planned)
+
+---
+
+### 3. State vs Event-Based Labeling
+
+A key design decision is the use of state-based vs event-based labeling, depending on entity type which defines the task type. This dual approach is standard, defensible, and consistent with real-world clinical use cases and broad downstream applications.
+
+| Entity Type                | Labeling Type | Interpretation |
+|---------------------------|--------------|----------------|
+| `symptom_presence`          | State-based  | Is it present now? |
+| `intervention_performed`    | Event-based  | Has it occurred during admission? |
+| `clinical_condition_active` | State-based  | Is it currently active? |
+
+State-based:
+- Reflects the patient’s current status at the time of the note
+- Past, resolved, or uncertain mentions → `False`
+
+Event-based:
+- Reflects whether an action has occurred at any point during admission
+- Includes current, completed, or past interventions → `True` if performed
+
+This distinction is critical and must be applied consistently.
+
+---
+
+### 4. Entity-Specific Task Guidelines
+
+#### 4.1 `symptom_presence`
+
+**Overview:**
+- Definition: Does the patient currently exhibit the symptom?
+- Type: State-based
+
+**Justification:** 
+- Symptoms are inherently real-time
+- Downstream tasks like monitoring, alerts, or clinical decision support (CDS) require the current status, not historical mentions.
+
+**Rules:**
+- `True` → symptom is currently present  
+- `False` → negated, historical, chronic baseline, or not actively occurring  
+
+**Examples:**
+- “Patient is complaining of nausea” → `True`  
+- “Patient denies pain” → `False` 
+
+**Edge Cases:**
+- Historical or chronic baseline symptoms → `False` 
+- Provoked only (e.g. “asked to cough”) → `False`  
+- “PRN nausea” → `False` (indication only, not current symptom)  
+- Ambiguous phrasing → default `True` only if likely current  
+
+---
+
+#### 4.2 `intervention_performed`
+
+**Overview:**
+- Definition: Has the intervention been performed at any point during the admission up to this note?
+- Type: Event-based
+
+**Justification:**
+- Interventions are often documented retrospectively. 
+- Even if completed by the time of the note, they still count as having occurred. 
+- This is useful for retrospective analyses, modeling treatment patterns, or cohort studies.
+
+**Rules:**
+- `True` → intervention has occurred (past or ongoing)  
+- `False` → planned, conditional, hypothetical, or not confirmed  
+
+**Examples:**
+- “Received 2 units PRBCs” → `True`  
+- “Plan to start heparin” → `False`  
+
+**Edge Cases:**
+- **PRN medications** → `False` unless explicitly administered  
+- **Weaning/continuation** → `True` (active process)  
+- **“Post antibiotics” / “received prior”** → `True` (event occurred)  
+- **Prophylaxis headings** → `False` unless explicitly started (e.g. “Started heparin subq for DVT prophylaxis” → `True`)
+- **Implicit presence (e.g. ETT in place)** → `True` (interventions like tubes and lines are typically documented in a way that implies they have been performed)  
+
+---
+
+#### 4.3 `clinical_condition_active`
+
+**Overview:**
+- Definition: Is the condition currently active and affecting the patient?
+- Type: State-based
+
+**Justification:**
+- Acute conditions need to reflect current patient status. 
+- This is aligned with real-time decision-making, risk assessment, and condition tracking.
+
+**Rules:**
+- `True` → explicitly active and clinically relevant  
+- `False` → historical, resolved, chronic baseline, negated, or uncertain  
+
+**Examples:**
+- “Worsening ARDS” → `True`  
+- “Resolved pneumonia” → `False`  
+
+**Edge Cases:**
+- **Implicit context:** “Hx diabetes admitted for sepsis” → diabetes `False`, sepsis `True`  
+- **Uncertainty:** “Possible pneumonia” → `False`  
+- **Causal mentions:** “Lactate elevated due to sepsis physiology” → `False` unless explicitly active  
+- **Headers / lists:** ALL CAPS or diagnostic lists → `False` unless sentence confirms activity or sentence context indicates active relevance 
+- **Single-term mentions:** “Sepsis” alone → `False` without context (e.g. the `section` field, or the entity itself)
+
+---
+
+### 3. Manual Annotation Validation 
+
+#### 3.1 Purpose
+
+Dataset sampling in general can be subject to errors such as incorrect filtering, mislabeling, or data corruption. Manual annotation also introduces potential risks such as incomplete labels, formatting inconsistencies, and distributional imbalances.
+
+Validation is therefore required to:
+
+- Ensure all 600 samples are fully annotated (`is_valid` complete)
+- Confirm labels are strictly binary (`True` / `False`)
+- Verify dataset structure matches expectations (no missing critical fields)
+- Ensure balanced task representation (200 per task)
+- Check label distribution among tasks for consistency and absence of severe imbalance
+- Detect errors early before dataset splitting and model training
+
+This ensures the dataset is:
+
+- Structurally complete, label-consistent, and statistically balanced
+- Ready for reproducible train/validation/test splitting
+
+This prevents propagation of annotation errors into training, which would otherwise degrade model performance and invalidate evaluation results.
+
+---
+
+#### 3.2 Validation Workflow
+
+The validation logic is implemented in `validate_manual_annotations.py` and follows a structured sequence of checks:
+
+1. **Load annotated dataset**  
+  - Read `annotation_sample_labeled.csv` into a DataFrame  
+  - Establish dataset as the single source of truth for downstream steps  
+
+2. **Structural integrity checks**  
+  - Confirm total row count (expected: 600)  
+  - Verify all expected columns are present  
+  - Detect any global missing values  
+
+3. **Critical field validation**  
+  - Ensure no missing values in:
+    - `is_valid` (must be fully annotated)
+    - `task` (required for stratification)
+    - `sentence_text` (required for model input)  
+
+4. **Label validation (`is_valid`)**  
+  - Confirm only valid binary labels are present (`True`, `False`)  
+  - Identify and flag any invalid or unexpected values  
+  - Compute overall label distribution to assess balance  
+
+5. **Task distribution checks**  
+  - Verify exact balance across tasks:
+    - 200 `symptom_presence`
+    - 200 `intervention_performed`
+    - 200 `clinical_condition_active`  
+  - Flag deviations from expected counts  
+
+6. **Task–label cross-distribution analysis**  
+  - Generate cross-tabulation of `task` vs `is_valid`  
+  - Inspect for:
+    - Severe imbalance within a task
+    - Potential annotation bias or systematic errors  
+
+7. **Diagnostic output and review**  
+  - Print all validation metrics and warnings  
+  - Require manual review before proceeding  
+  - Only proceed to stratified splitting if no critical issues are detected  
+
+---
+
+#### 3.3 Validation Output Interpretation
+
+**A. Dataset Structure**
+
+- Total rows: **600** → matches expected sample size  
+- All required columns present  
+- No structural inconsistencies detected  
+
+Dataset structure is correct and complete.
+
+---
+
+**B. Missing Values**
+
+- No missing values in critical fields:
+  - `task`: 0  
+  - `sentence_text`: 0  
+  - `is_valid`: 0  
+
+- `negated`: 400 missing → expected and correct  
+  - Only populated for `SYMPTOM` entities  
+  - Not used for `INTERVENTION` or `CLINICAL_CONDITION`  
+
+Missingness is expected and does not affect training.
+
+---
+
+**C. Label Integrity**
+
+- Unique values: `[True, False]` → valid binary labels  
+- Invalid label rows: **0**  
+
+Labels are clean, consistent, and usable.
+
+---
+
+**D. Label Distribution**
+
+| Label | Count |
+|------|-------|
+| True | 305   |
+| False | 295  |
+
+- Near-balanced distribution (~51% / 49%)
+- No significant class imbalance detected
+
+Dataset is suitable for training without label rebalancing
+
+---
+
+**E. Task Distribution**
+
+| Task                        | Count |
+|-----------------------------|-------|
+| `symptom_presence`            | 200   |
+| `clinical_condition_active`   | 200   |
+| `intervention_performed`      | 200   |
+
+- Exact balance across all tasks  
+
+Stratified sampling was correctly implemented.
+
+---
+
+**F. Task vs Label Distribution**
+
+| Task                        | `False` | `True` |
+|-----------------------------|---------|--------|
+| `clinical_condition_active`   | 122     | 78     |
+| `intervention_performed`      | 71      | 129    |
+| `symptom_presence`            | 102     | 98     |
+
+- **symptom_presence:** Balanced (~50/50); maybe due to straightforward nature of symptom mentions
+- **intervention_performed**: Skewed toward `True`; expected due to frequent documentation of completed interventions
+- **clinical_condition_active** → skewed toward `False`; expected due to historical conditions, uncertain diagnoses, and header-like extractions  
+
+Distribution patterns are clinically and methodologically consistent. No correction required.
+
+---
+
+**Final Assessment**
+
+- All structural checks passed  
+- All labels valid and complete  
+- Balanced dataset across tasks  
+- Acceptable and explainable label distributions  
+
+The dataset is validated and ready for stratified train/validation/test splitting.
+
+---
+
+## Dataset Splitting
 
 
 ⸻
@@ -855,8 +1157,14 @@ Why this works
 
 
 
+	•	Use validation for early stopping only
+	•	Evaluate once on test set
 
-
+Overall the entity-distribution 600 sample dataset, manual annotation, and subsequent stratified split is the correct approach because it ensures:
+	•	Statistically valid
+	•	Efficient
+	•	Fully aligned with your pipeline design
+	•	Minimal time for maximum outcome
 
 
 ⸻
@@ -881,144 +1189,6 @@ Reason:
 
 ⸻
 
-Final Summary
-	•	Use 600 annotated samples
-	•	Ensure balanced entity distribution
-	•	Apply stratified train/val/test split
-	•	Keep annotation minimal (is_valid only)
-	•	Use validation for early stopping only
-	•	Evaluate once on test set
-
-This is:
-	•	Statistically valid
-	•	Efficient
-	•	Fully aligned with your pipeline design
-	•	Minimal time for maximum outcome
-
-
-
-
-
-
----
-
-# Clinical Entity Labeling Guidelines
-
-## 1. symptom_presence
-
-**Definition:** Does the patient currently exhibit the symptom at the time of the note?
-
-**Example:**
-- “Patient denies pain today” → False  
-- “Patient is complaining of nausea” → True  
-
-**Type:** **State-based** ✅
-
-**Justification:**  
-Symptoms are inherently real-time; downstream tasks like monitoring, alerts, or clinical decision support (CDS) require the **current status**, not historical mentions.
-
-**Edge Cases:**
-- Historical or chronic symptoms → FALSE  
-- Provoked symptoms not currently present (e.g., “asked to cough”) → FALSE  
-- Ambiguous phrasing like “increased with cough” → default TRUE if unclear, note as potential edge case  
-- Medication indication mentions (e.g., “PRN nausea”) → FALSE  
-
----
-
-## 2. intervention_performed
-
-**Definition:** Has the intervention been performed at any point **during the admission up to this note**?
-
-**Example:**
-- “Received 2 units PRBCs in ED” → True  
-- “Plan to start heparin” → False  
-
-**Type:** **Event-based** ✅
-
-**Justification:**  
-Interventions are often documented retrospectively. Even if completed by the time of the note, they still count as having occurred. This is useful for retrospective analyses, modeling treatment patterns, or cohort studies.
-
-**Rules:**
-- TRUE → intervention has actually been carried out (medication administered, procedure performed, imaging done, weaning actively occurring)  
-- FALSE → planned, hypothetical, historical, conditional, guideline/consideration only  
-- PRN medications → only TRUE if explicitly confirmed administered  
-
-**Edge Cases:**
-- **Temporal indicators**: Phrases like “post antibiotics”, “received prior” → FALSE for state-based queries, TRUE for event-based  
-- **Prophylaxis vs treatment**: “Prophylaxis: Subcutaneous heparin” → FALSE; “Started heparin subq for DVT prophylaxis” → TRUE  
-- **Additional / prior interventions** → FALSE unless explicitly stated as ongoing  
-- **Weaning or continuation** → TRUE if actively being performed  
-
----
-
-## 3. clinical_condition_active
-
-**Definition:** Is the condition **currently active and affecting the patient**?
-
-**Example:**
-- “Resolved pneumonia” → False  
-- “Worsening ARDS” → True  
-
-**Type:** **State-based** ✅
-
-**Justification:**  
-Acute conditions need to reflect **current patient status**. This is aligned with real-time decision-making, risk assessment, and condition tracking.
-
-**Rules:**
-- TRUE → explicitly stated, currently active, contributing to admission  
-- FALSE → historical, resolved, chronic, negated, uncertain, or only mentioned as causal/explanatory  
-
-**Edge Cases:**
-- Implicit context: “Patient with diabetes admitted for sepsis” → diabetes FALSE, sepsis TRUE  
-- Mixed clauses: “With HTN … found to have NSTEMI” → focus on current clause for TRUE/FALSE  
-- Uncertain phrases: “Possible pneumonia” → FALSE  
-- Header-like extractions: ALL CAPS section header → FALSE unless sentence confirms active condition  
-- Underlying causes: Only TRUE if explicitly causing current abnormality/clinical issue  
-
----
-
-## ✅ Overall Evaluation
-
-| Label                     | Type       | Correct? |
-|----------------------------|------------|----------|
-| symptom_presence           | State      | ✅       |
-| intervention_performed     | Event      | ✅       |
-| clinical_condition_active  | State      | ✅       |
-
-**Acceptable & Justifiable:** Yes. This approach aligns with clinical reasoning, NLP labeling standards, and practical use in downstream modeling.
-
----
-
-## Key Points
-
-- **State-based labels** → reflect **current status** at the time of note  
-- **Event-based labels** → reflect **history of actions** during admission  
-- This dual approach is standard, defensible, and consistent with real-world clinical use cases  
-
----
-
-## Example Labeling Table
-
-| Sentence / Entity                                        | symptom_presence | intervention_performed | clinical_condition_active | Notes |
-|----------------------------------------------------------|-----------------|----------------------|-------------------------|-------|
-| “Patient is complaining of nausea”                       | True            | N/A                  | N/A                     | Symptom currently present |
-| “Received 2 units PRBCs in ED”                           | N/A             | True                 | N/A                     | Intervention occurred |
-| “Plan to start heparin”                                  | N/A             | False                | N/A                     | Future intervention |
-| “Resolved pneumonia”                                     | N/A             | N/A                  | False                   | Condition no longer active |
-| “Worsening ARDS”                                         | N/A             | N/A                  | True                    | Currently active condition |
-| “Morphine PRN; no administration documented”            | N/A             | False                | N/A                     | Not confirmed |
-| “Weaning vasopressors ongoing”                           | N/A             | True                 | N/A                     | Active intervention |
-| “24 hrs post antibiotics”                                 | N/A             | False (state-based)  | N/A                     | Past intervention, not ongoing |
-
----
-
-**Conclusion:**  
-
-- **symptom_presence** → state-based  
-- **intervention_performed** → event-based  
-- **clinical_condition_active** → state-based  
-
-This framework is consistent, defensible, and provides clear guidance for both manual annotation and transformer-based filtering.
 
 
 
@@ -1028,55 +1198,3 @@ This framework is consistent, defensible, and provides clear guidance for both m
 
 
 
-
-=== BASIC INFO ===
-Total rows: 600
-Index(['note_id', 'section', 'concept', 'entity_text', 'entity_type',
-       'sentence_text', 'negated', 'task', 'confidence', 'is_valid'],
-      dtype='object')
-
-=== MISSING VALUES ===
-note_id            0
-section            0
-concept            0
-entity_text        0
-entity_type        0
-sentence_text      0
-negated          400
-task               0
-confidence         0
-is_valid           0
-dtype: int64
-
-Missing is_valid: 0
-
-=== UNIQUE is_valid VALUES ===
-[ True False]
-
-=== is_valid DISTRIBUTION ===
-is_valid
-True     305
-False    295
-Name: count, dtype: int64
-
-=== TASK DISTRIBUTION ===
-task
-symptom_presence             200
-clinical_condition_active    200
-intervention_performed       200
-Name: count, dtype: int64
-
-=== TASK vs is_valid ===
-is_valid                   False  True 
-task                                   
-clinical_condition_active    122     78
-intervention_performed        71    129
-symptom_presence             102     98
-
-=== CHECK TASK SIZE (expect 200 each) ===
-symptom_presence: 200
-clinical_condition_active: 200
-intervention_performed: 200
-
-=== INVALID LABEL ROWS ===
-Number of invalid label rows: 0
