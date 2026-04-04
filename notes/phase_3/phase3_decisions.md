@@ -3,9 +3,10 @@
 ## Objective
 
 - This document outlines the key design decisions for Phase 3: transformer-based validation of extracted clinical entities.
+- This covers model selection, dataset construction, manual annotation guidelines, split strategy, and model training approach.
 - Phase 3 builds on Phase 2, where deterministic rules generate high-recall, span-aligned candidate entities.
 - The transformer layer converts these candidates into contextually valid, task-specific outputs via semantic classification.
-- The goal is a scalable, reproducible, and clinically meaningful validation layer.
+- The goal is a reliable, reproducible and clinically meaningful validation layer.
 
 ---
 
@@ -1007,192 +1008,451 @@ Distribution patterns are clinically and methodologically consistent. No correct
 
 **Final Assessment**
 
+The dataset is validated and ready for stratified train/validation/test splitting.
+
 - All structural checks passed  
 - All labels valid and complete  
 - Balanced dataset across tasks  
 - Acceptable and explainable label distributions  
 
-The dataset is validated and ready for stratified train/validation/test splitting.
-
 ---
 
 ## Dataset Splitting
 
+### 1. Objective
 
-⸻
+To partition the fully annotated dataset into train, validation, and test sets that:
 
-Split Strategy
+- Preserve statistical integrity across all splits  
+- Maintain balanced representation of:
+  - Entity tasks (`symptom_presence`, `intervention_performed`, `clinical_condition_active`)
+  - Binary labels (`is_valid`: True/False)  
+- Prevent data leakage between training and evaluation  
+- Enable reliable model training, tuning, and final evaluation  
 
-Use:
-	•	Train: 420 (70%)
-	•	Validation: 90 (15%)
-	•	Test: 90 (15%)
+This is the final preparation step before transformer fine-tuning and directly determines the validity of all downstream performance metrics.
 
-⸻
+---
 
-Per-Entity Stratified Distribution
+### 2. Splitting Strategy
 
-Total per entity type:
-	•	SYMPTOM: 200
-	•	INTERVENTION: 200
-	•	CLINICAL_CONDITION: 200
+#### 2.1 Split Proportions
 
-Split per entity type:
+The dataset (600 annotated entities) is split as follows:
 
-Split
-Per Type
-Total
-Train
-140
-420
-Val
-30
-90
-Test
-30
-90
+- **Train:** 420 (70%)  
+- **Validation:** 90 (15%)  
+- **Test:** 90 (15%)  
 
+This split is appropriate for transformer fine-tuning, where:
 
-Why This Split Is Correct
+- The model already encodes language and clinical knowledge  
+- The dataset is used to learn task-specific decision boundaries  
+- Additional data yields diminishing returns relative to annotation cost  
 
-1. Train (420)
-	•	Large enough to learn:
-	•	Negation patterns
-	•	Clinical phring
-	•	Entity-type differences
-	•	Still feasible to annotate
+---
 
-⸻
+#### 2.2 Per-Entity Distribution
 
-2. Validation (90)
+Each entity type is equally represented in the full dataset (200 each), and this balance is preserved across splits:
+
+| Split       | Per Entity Type | Total |
+|------------|----------------|-------|
+| Train      | 140            | 420   |
+| Validation | 30             | 90    |
+| Test       | 30             | 90    |
+
+This ensures consistent semantic coverage across all datasets.
+
+---
+
+#### 2.3 Reproducibility
+
+- A fixed `random_state=42` is used during splitting  
+- Ensures identical dataset partitions across runs  
+
+This is required for:
+- Reproducibility of experiments  
+- Consistent debugging  
+- Fair comparison of model iterations  
+
+---
+
+### 3. Rationale for Split Design
+
+**Training Set (70%)**
+
+- Large enough to learn:
+  - Clinical language patterns  
+  - Negation and contextual cues  
+  - Task-specific decision boundaries  
+- Maximises data available for fitting without compromising evaluation sets  
+
+---
+
+**Validation Set (15%)**
 
 Used during training to:
-	•	Monitor performance across epochs
-	•	Prevent overfitting
-	•	Select best model checkpoint
 
-Without validation:
-	•	Overfitting risk increases
-	•	No reliable stopping criterion
+- Monitor performance across epochs  
+- Detect overfitting  
+- Select the best model checkpoint  
 
-⸻
+Without a validation set:
+- Model selection becomes unreliable  
+- Overfitting cannot be properly controlled  
 
-3. Test (90)
+---
 
-Used once at the end
+**Test Set (15%)**
 
-Purpose:
-	•	Final unbiased evaluation
+Used only once after training to:
 
-Metrics reported:
-	•	Accuracy
-	•	Precision / Recall / F1
-	•	Improvement over rule-based extraction
+- Provide unbiased final evaluation  
+- Report:
+  - Accuracy  
+  - Precision / Recall / F1  
+  - Improvement over rule-based baseline  
 
-⸻
+Strict separation ensures no leakage from training or tuning.
 
-Stratification Requirement
+---
 
-Stratification is mandatory.
+### 4. Stratification Strategy
 
-Without it:
-	•	Model may overfit to one entity type
-	•	Metrics become misleading
-	•	Entity-level comparisons break
+#### 4.1 Purpose of Stratification
+
+Stratification is mandatory. Without it:
+
+- Task imbalance may occur → biased learning  
+- Label imbalance may occur → incorrect decision boundaries  
+- Evaluation metrics become unreliable  
+- Entity-level comparisons become invalid  
+
+---
+
+#### 4.2 Stratification Dimensions
+
+Two independent distributions must be preserved:
+
+- `task` (3 classes)  
+- `is_valid` (binary labels)  
+
+Single-dimension stratification is insufficient:
+
+- Stratifying only by `task`:
+  - Preserves 200/200/200  
+  - Breaks True/False balance within tasks  
+
+- Stratifying only by `is_valid`:
+  - Preserves overall label balance  
+  - Breaks task distribution  
+
+Both must be preserved simultaneously.
+
+---
+
+#### 4.3 Combined Stratification
+
+To preserve both simultaneously, a combined stratification key is constructed: `stratify_key = task + “_” + is_valid`
+
+- This is a categorical variable with 6 unique values (3 tasks × 2 labels)
+- This is added as a new column to the dataset `stratify_key`
+- Used as the `stratify` variable during splitting 
+
+Example:
+
+| task                        | is_valid | stratify_key                         |
+|----------------------------|----------|--------------------------------------|
+| `symptom_presence`           | `False`    | symptom_presence_False               |
+| `intervention_performed`     | `True`     | intervention_performed_True          |
+| `clinical_condition_active`  | `False`    | clinical_condition_active_False      |
+
+This ensures:
+
+- Task proportions are preserved  
+- Label distributions are preserved within each task  
+
+The `stratify_key` is removed after splitting as it is not part of the dataset schema and must not be used as a model input.
+
+---
+
+#### 4.4 Two-Stage Stratified Splitting
+
+A two-stage approach is used because direct three-way stratified splitting is not supported by scikit-learn's `train_test_split` function.
+
+**Stage 1 — Train vs Temp**
+
+- 600 → Train (420) + Temp (180)  
+- Stratified using `stratify_key`  
+- Ensures training set reflects full dataset distribution  
+
+**Stage 2 — Validation vs Test**
+
+- 180 → Validation (90) + Test (90)  
+- Stratified again using `stratify_key`  
+
+---
+
+#### 4.5 Why Two-Stage Splitting Is Required
+
+This approach ensures:
+
+- Consistent distribution across all splits  
+- No overlap between datasets  
+- Proper statistical independence  
+- Reproducible and controlled partitioning  
+
+Without this:
+
+- Sequential random splits introduce imbalance  
+- Validation/test sets may become biased  
+- Final evaluation becomes unreliable  
+
+---
+
+### 5. Implementation Workflow
+
+The code and logic are implemented in `stratified_split.py` and follow a controlled, reproducible pipeline:
+
+1. **Load validated dataset**  
+  - Read `annotation_sample_labeled.csv` (600 rows)  
+  - Assumes prior validation has confirmed:
+    - No missing labels  
+    - Correct task distribution (200 per task)  
+    - Valid `True`/`False` labels  
+
+2. **Create stratification key**  
+  - Construct `stratify_key = task + "_" + is_valid`  
+  - Encodes joint distribution of:
+    - Task type  
+    - Label (valid/invalid)  
+  - Enables simultaneous preservation of both dimensions during splitting  
+
+3. **Stage 1 split (Train vs Temp)**  
+  - Apply `train_test_split` with:
+    - `test_size=0.30` → 180 samples (temp set)  
+    - `stratify=stratify_key`  
+    - `random_state=42`  
+  - Output:
+    - Train: 420  
+    - Temp: 180  
+  - Ensures training set reflects full dataset distribution  
+
+4. **Stage 2 split (Validation vs Test)**  
+  - Split temp set using:
+    - `test_size=0.50` → 90 / 90  
+    - `stratify=temp_df["stratify_key"]`  
+  - Output:
+    - Validation: 90  
+    - Test: 90  
+  - Maintains distribution consistency in evaluation sets  
+
+5. **Remove stratification key**  
+  - Drop `stratify_key` from all splits  
+  - Prevents:
+    - Inclusion of artificial feature  
+    - Potential data leakage into model training  
+
+6. **Reset indices**  
+  - Reset row indices for each split (`0 → n-1`)  
+  - Ensures clean, sequential datasets for downstream processing  
+
+7. **Verify split integrity**  
+  - Print and confirm:
+    - Dataset sizes (420 / 90 / 90)  
+    - Task distribution in each split  
+    - `is_valid` distribution  
+    - Task vs label cross-tabulation  
+  - Confirms stratification has been correctly applied  
+
+8. **Save outputs**  
+  - Write splits to `data/extraction/splits`:
+    - `train.csv`  
+    - `val.csv`  
+    - `test.csv`  
+  - Saved without indices to ensure clean CSV format  
+
+---
+
+### 6. Split Validation
+
+#### 6.1 Output Analysis
+
+**A. Dataset size verification**
+
+- Total dataset: 600 rows
+- Split sizes:
+  - Train: 420
+  - Validation: 90
+  - Test: 90
+
+These match the intended 70/15/15 split exactly, confirming correct partitioning.
+
+**B. Task Distribution**
+
+- Train: 140 / 140 / 140 across all three tasks → perfectly balanced  
+- Validation & Test: Minor variation (29–31 per task) due to integer constraints during stratification; no systematic skew toward any task  
+
+Interpretation:
+- Task balance is preserved across all splits  
+- Minor deviations are expected and statistically negligible 
+
+**C. Label Distribution**
+
+| Split       | True | False |
+|------------|------|-------|
+| Train      | 214  | 206   |
+| Validation | 46   | 44    |
+| Test       | 45   | 45    |
+
+Interpretation:
+- Near 50/50 distribution across all splits  
+- No class imbalance introduced  
+- Suitable for stable binary classification training  
+
+**D. Task vs Label Distribution**
+
+Across all splits:
+- Each task retains a similar internal True/False ratio  
+- Example (Train):
+  - `clinical_condition_active`: 85 False / 55 True  
+  - `intervention_performed`: 50 False / 90 True  
+  - `symptom_presence`: 71 False / 69 True  
+- Validation and test sets closely mirror these proportions.
+
+Interpretation:
+- Joint distribution of (`task`, `is_valid`) is preserved  
+- Confirms correct use of `stratify_key`  
+- Ensures:
+  - Consistent learning signal in training  
+  - Valid comparison during evaluation  
+
+---
+
+#### 6.2 Overall Assessment 
+
+All validation checks confirm:
+
+- Correct split sizes  
+- Preserved task balance  
+- Preserved label balance  
+- Preserved joint distribution (task + label)  
+- No evidence of bias or skew in any split  
+
+The dataset is now:
+
+- Statistically valid  
+- Properly stratified  
+- Fully reproducible  
+- Free from leakage between splits  
+
+No further preprocessing is required.
+
+The pipeline is ready to proceed to transformer fine-tuning and evaluation.
+
+---
+
+## Transformer Training and Validation
+
+### 1. Objective
+
+Train BioClinicalBERT to improve rule-based extraction with learned contextual reasoning for validation.
+
+rememebr 
+
+What You Are Actually Training
+
+You are not training a model from scratch.
+
+You are:
+	•	Taking BioClinicalBERT
+	•	Adding a classification head (binary output: True/False)
+	•	Fine-tuning it on your dataset so it learns:
+
+“Given a sentence + entity context → is this entity valid for this task?”
+
+---
+
+Define the Learning Problem Properly
+
+Input (X)
+
+You need to decide what text goes into the model.
+
+Do NOT include:
+	•	task as raw label input (this becomes leakage unless encoded properly)
+	•	negated
+	•	confidence
+
+Output (y)
+
+is_valid → 0 or 1
+
+Convert:
+	•	True → 1
+	•	False → 0
+
+---
+
+Tokenisation
+
+Use HuggingFace tokenizer:
+	•	Hugging Face Transformers
+
+we need to explain how we do tokenisation, what its purpose is, and how it works with the model input formatting
+
+---
+
+Model
+
+AutoModelForSequenceClassification
+
+Bio_ClinicalBERT
+
+we need to explain everything as in what we are doing and how we load the model 
 
 
-Correct approach (must follow this)
+---
 
-You split once, not three times
+Training setup
 
-Step 1 — Sample 600 total (balanced)
+Use Trainer API: from transformers import Trainer, TrainingArguments
 
-From your 40,000+ entities:
-	•	Randomly sample:
-	•	200 SYMPTOM
-	•	200 INTERVENTION
-	•	200 CLINICAL_CONDITION
+we need to explain why we are using the Trainer API, what it does, and how it simplifies the training loop, handles batching, and manages evaluation during training
 
-This is your annotation dataset
+Key parameters:
+	•	epochs: 3–5
+	•	learning rate: 2e-5
+	•	batch size: 8–16
+	•	evaluation strategy: "epoch"
 
-⸻
+we will need to explain the rationale behind these hyperparameters, how they are chosen based on best practices for fine-tuning transformers, and how they impact model performance and training dynamics
 
-Step 2 — Annotate all 600
+---
 
-Add:
-
-"is_valid": true / false
-
-Step 3 — Perform stratified split (2-stage)
-
-You now split this single annotated dataset
-
-⸻
-
-Split process (correct)
-
-First split:
-	•	Train: 70% (420)
-	•	Temp: 30% (180)
-
-Stratified by entity_type
-
-⸻
-
-Second split:
-
-Split the 180 into:
-	•	Validation: 90
-	•	Test: 90
-
-Again stratified
-
-⸻
-
-Why this works
-	•	No overlap between sets
-	•	Maintains class balance
-	•	Proper statistical separation
-	•	Clean, reproducible
+Single Model vs Task-Aware Model
 
 
 
-	•	Use validation for early stopping only
-	•	Evaluate once on test set
-
-Overall the entity-distribution 600 sample dataset, manual annotation, and subsequent stratified split is the correct approach because it ensures:
-	•	Statistically valid
-	•	Efficient
-	•	Fully aligned with your pipeline design
-	•	Minimal time for maximum outcome
 
 
-⸻
 
-Expected Outcome (with 600)
+---
 
-You should observe:
-	•	Clear improvement over rule-based extraction
-	•	Performance pattern:
+Expected outcomes for model training and evaluation:
+
+- Clear improvement over rule-based extraction
+- Performance pattern: highest to lowest due to Increasing semantic complexity across entity types
 
 Entity Type
 Expected Performance
 SYMPTOM
-Highest
+Highest (strong baseline already)
 INTERVENTION
-Moderate
+Moderate improvement (complexity in temporality and intent)
 CLINICAL_CONDITION
-Lowest
-
-Reason:
-	•	Increasing semantic complexity across entity types
-
-⸻
-
-
-
-
-
+Largest improvement (highest complexity, weakest baseline)
 
 
 
