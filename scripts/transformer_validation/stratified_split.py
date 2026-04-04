@@ -58,7 +58,8 @@ print(f"Loaded dataset with {len(df)} rows")
 # 3. Create Stratification Key
 # -------------------------
 
-# Combine task + is_valid label to preserve both distributions during splitting
+# Combine task + is_valid to create a stratification key
+# This ensures both task balance AND label balance are preserved
 df["stratify_key"] = df["task"].astype(str) + "_" + df["is_valid"].astype(str)
 
 # -------------------------
@@ -88,10 +89,18 @@ val_df, test_df = train_test_split(
 # -------------------------
 
 for split in [train_df, val_df, test_df]:
-    split.drop(columns=["stratify_key"], inplace=True) # inplace=True to modify df directy without needing to copy
+    split.drop(columns=["stratify_key"], inplace=True) # inplace=True modifies the DataFrame directly (no copy created)
 
 # -------------------------
-# 7. Verification
+# 7. Reset indices (clean datasets)
+# -------------------------
+
+train_df = train_df.reset_index(drop=True)
+val_df = val_df.reset_index(drop=True)
+test_df = test_df.reset_index(drop=True)
+
+# -------------------------
+# 8. Verification
 # -------------------------
 
 # Verify sizes
@@ -117,7 +126,7 @@ check_distribution("Validation", val_df)
 check_distribution("Test", test_df)
 
 # -------------------------
-# 8. Save Outputs
+# 9. Save Outputs
 # -------------------------
 
 train_df.to_csv(TRAIN_OUTPUT_FILE, index=False) 
