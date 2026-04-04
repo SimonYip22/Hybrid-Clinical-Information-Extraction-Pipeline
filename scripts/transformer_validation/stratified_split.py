@@ -1,7 +1,35 @@
+"""
+stratified_split.py
 
+Purpose:
+    - Split the fully validated annotated dataset into train, validation,
+      and test sets for transformer training.
+    - Ensure balanced representation across both:
+        - task (symptom_presence, intervention_performed, clinical_condition_active)
+        - label (is_valid: True/False)
+    - Prevent data leakage and preserve statistical integrity.
 
+Workflow:
+    1. Load validated annotated dataset (600 rows).
+    2. Create stratification key combining:
+        - task + is_valid
+    3. Perform 2-stage stratified split:
+        - Stage 1:
+            Train (70%) vs Temp (30%)
+        - Stage 2:
+            Temp → Validation (50%) + Test (50%)
+    4. Verify split sizes and distributions.
+    5. Save splits to CSV files.
+
+Outputs: data/extraction/splits/
+    - train.csv (420 rows)
+    - val.csv (90 rows)
+    - test.csv (90 rows)
+"""
 
 import pandas as pd
+from sklearn.model_selection import train_test_split
+from pathlib import Path
 
 # -------------------------
 # 1. Config
@@ -13,66 +41,88 @@ TRAIN_OUTPUT_FILE = "data/extraction/splits/train.csv"
 VAL_OUTPUT_FILE = "data/extraction/splits/val.csv"
 TEST_OUTPUT_FILE = "data/extraction/splits/test.csv"
 
-TRAIN = 420
-VALIDATION = 90
-TEST = 90
+RANDOM_STATE = 42
+
+# Ensure output directory exists
+Path("data/extraction/splits").mkdir(parents=True, exist_ok=True)
+
+# -------------------------
+# 2. Load Data
+# -------------------------
 
 df = pd.read_csv(INPUT_FILE)
 
+print(f"Loaded dataset with {len(df)} rows")
+
 # -------------------------
-# 2. Check Dataset
+# 3. Create Stratification Key
 # -------------------------
-print("=== BASIC INFO ===")
-print(f"Total rows: {len(df)}")
-print(df.columns)
-print()
 
-# Check missing values
-print("=== MISSING VALUES ===")
-print(df.isnull().sum())
-print()
+# Combine task + is_valid label to preserve both distributions during splitting
+df["stratify_key"] = df["task"].astype(str) + "_" + df["is_valid"].astype(str)
 
-# Specifically check is_valid
-missing_is_valid = df['is_valid'].isnull().sum()
-print(f"Missing is_valid: {missing_is_valid}")
-print()
+# -------------------------
+# 4. Stage 1 Split (Train vs Temp)
+# -------------------------
 
-# Check unique values in is_valid
-print("=== UNIQUE is_valid VALUES ===")
-print(df['is_valid'].unique())
-print()
+train_df, temp_df = train_test_split(
+    df,
+    test_size=0.30,  # 30% temp
+    stratify=df["stratify_key"],
+    random_state=RANDOM_STATE
+)
 
-# Count True / False
-print("=== is_valid DISTRIBUTION ===")
-print(df['is_valid'].value_counts())
-print()
+# -------------------------
+# 5. Stage 2 Split (Val vs Test)
+# -------------------------
 
-# Check task distribution
-print("=== TASK DISTRIBUTION ===")
-print(df['task'].value_counts())
-print()
+val_df, test_df = train_test_split(
+    temp_df,
+    test_size=0.50,  # split 180 → 90 / 90
+    stratify=temp_df["stratify_key"],
+    random_state=RANDOM_STATE
+)
 
-# Cross-tab (VERY IMPORTANT)
-print("=== TASK vs is_valid ===")
-print(pd.crosstab(df['task'], df['is_valid']))
-print()
+# -------------------------
+# 6. Drop helper column
+# -------------------------
 
-# Check if each task has 200 rows
-print("=== CHECK TASK SIZE (expect 200 each) ===")
-task_counts = df['task'].value_counts()
+for split in [train_df, val_df, test_df]:
+    split.drop(columns=["stratify_key"], inplace=True) # inplace=True to modify df directy without needing to copy
 
-for task, count in task_counts.items():
-    print(f"{task}: {count}")
+# -------------------------
+# 7. Verification
+# -------------------------
 
-print()
+# Verify sizes
+print("\n=== SPLIT SIZES ===")
+print(f"Train: {len(train_df)}")
+print(f"Validation: {len(val_df)}")
+print(f"Test: {len(test_df)}")
 
-# Check for invalid label values
-valid_labels = {True, False}
+# Verify distributions
+def check_distribution(name, data):
+    print(f"\n=== {name.upper()} DISTRIBUTION ===")
+    print("\nTask distribution:")
+    print(data["task"].value_counts())
 
-invalid_labels = df[~df['is_valid'].isin(valid_labels)]
+    print("\nis_valid distribution:")
+    print(data["is_valid"].value_counts())
 
-print("=== INVALID LABEL ROWS ===")
-print(f"Number of invalid label rows: {len(invalid_labels)}")
+    print("\nTask vs is_valid:")
+    print(pd.crosstab(data["task"], data["is_valid"])) # cross-tab to show distribution of is_valid within each task
 
-if len(invalid_labels) > 0:
-    print(invalid_labels.head())
+check_distribution("Train", train_df)
+check_distribution("Validation", val_df)
+check_distribution("Test", test_df)
+
+# -------------------------
+# 8. Save Outputs
+# -------------------------
+
+train_df.to_csv(TRAIN_OUTPUT_FILE, index=False) 
+val_df.to_csv(VAL_OUTPUT_FILE, index=False)
+test_df.to_csv(TEST_OUTPUT_FILE, index=False)
+
+print("\nSplits saved successfully.")
+
