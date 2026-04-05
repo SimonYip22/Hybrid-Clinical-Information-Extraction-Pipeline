@@ -1463,7 +1463,424 @@ In your context:
 	•	You are not training from scratch
 	•	You are updating weights of an existing model for a new task
 
+Training
+The process you run (epochs, batches, updates)
+Fine-tuning
+The type of training (starting from pretrained weights)
+
+
+You are training the model, and that training is specifically fine-tuning.
+
+Validation is not evaluation — it is decision-making during training.
+
+It answers:
+
+“Is the model learning properly, or is something wrong?”
+
+You use validation to detect:
+
+A. Healthy training
+	•	Validation loss ↓ over epochs
+	•	Metrics ↑ then plateau
+
+→ Good → stop training
+
+⸻
+
+B. Overfitting
+	•	Training loss ↓
+	•	Validation loss ↑
+
+→ Model memorising → stop earlier or regularise
+
+⸻
+
+C. Underfitting
+	•	Both train + validation performance low
+
+→ Model not learning → change setup
+
+⸻
+
+4. How do you know if performance is “bad”?
+
+You do NOT need a fixed numeric threshold yet.
+
+Instead, you look for patterns:
+
+Good enough (for your project scope)
+	•	Stable validation metrics
+	•	No divergence
+	•	Clear learning signal
+
+Problematic signals
+	•	Validation performance near random (~50%)
+	•	Highly unstable across epochs
+	•	Strong mismatch between tasks
+
+⸻
+
+5. Do you need iterative improvements?
+
+Short answer: No — not by default
+
+Your pipeline is already:
+	•	Clean
+	•	Balanced
+	•	Well-labelled
+	•	Stratified
+
+So:
+
+A single well-designed baseline run is usually sufficient.
+
+⸻
+
+6. Then why do people talk about “iterations”?
+
+Because in real ML workflows:
+	•	First model often has issues
+	•	Data may be messy
+	•	Splits may be biased
+
+But in your case:
+	•	You already fixed those upstream
+	•	You are not experimenting blindly
+
+⸻
+
+7. What should YOU actually do?
+
+Step 1 — Build a strong baseline (this is your priority)
+Do it properly:
+	•	BioClinicalBERT
+	•	Sentence input
+	•	Clean tokenization
+	•	Proper training setup
+	•	Validation monitoring
+
+That alone is already a strong system
+
+⸻
+
+Step 2 — Check validation behaviour
+After training, ask:
+	•	Did validation improve?
+	•	Did it stabilise?
+	•	Any obvious issues?
+
+⸻
+
+Step 3 — Only iterate if needed
+You only change things if:
+
+Problem
+Action
+Underfitting
+Increase epochs / improve input
+Overfitting
+Early stopping / regularisation
+Confusion across tasks
+Add task prefix
+Entity ambiguity
+Add entity markers
+
+If none of these appear:
+
+You stop. No iteration needed.
+
+⸻
+
+8. Can you “just make the baseline as good as possible from the start”?
+
+Yes — and that is exactly what you should do.
+
+Best approach:
+	•	Include entity markers from the start
+	•	Use proper hyperparameters
+	•	Use validation correctly
+
+That reduces the need for later changes.
+
+⸻
+
+9. About the “improvement layer” I mentioned earlier
+
+That is optional, not required.
+
+Think of it like:
+	•	Baseline (required) → your actual system
+	•	Improvements (optional) → only if baseline fails
+
+You do NOT need to artificially create iterations just to say you did.
+
+⸻
+
+10. What you should NOT do
+	•	Do NOT tweak endlessly without reason
+	•	Do NOT use test set to guide decisions
+	•	Do NOT over-engineer before seeing results
+
+You asked:
+
+“How do we know if we need to fine-tune more?”
+
+Answer:
+
+You already are fine-tuning.
+
+The real question is:
+
+“Do we need to change the setup?”
+
+And the answer is:
+	•	Only if validation behaviour shows a problem
+	•	Otherwise → baseline is sufficient
+
+
+2. The real decision you must make
+
+You only need to decide:
+
+What input format does your ONE model use?
+
+There are only two valid options:
+
+Option A — Sentence only (simple baseline)
+Pros:
+	•	Standard
+	•	Simple
+	•	Easy to implement
+	•	Works reasonably well
+
+Cons:
+	•	Model must infer entity + task implicitly
+
+
+
+⸻
+
+Option B — Structured input (your idea)
+"[TASK: symptom_presence] [ENTITY: chest pain] Patient denies chest pain"
+
+Pros:
+	•	Explicit signal
+	•	Better disambiguation
+	•	Stronger performance in edge cases
+
+Cons:
+	•	Slightly more implementation effort
+
+  ---
+
+Start directly with:
+
+Structured input (Option B)
+
+This aligns with:
+	•	your original intuition
+	•	your dataset design
+	•	your need for precision
+
+⸻
+
+5. Why this is the correct choice
+
+Because your task is NOT generic NLP.
+
+You are doing:
+
+entity-level validation within a sentence
+
+Without entity awareness, the model must guess:
+	•	which part of sentence matters
+	•	what task applies
+
+That is unnecessary difficulty.
+
+⸻
+
+6. Why your earlier concern was valid
+
+You said:
+
+“It makes no sense to only use sentence text”
+
+That is partially correct for your task specifically, because:
+	•	multiple entities can exist in one sentence
+	•	task type changes interpretation
+	•	clinical text is dense and ambiguous
+
+So adding structure is justified.
+
+format a structured input then feed into tokeniser. 
+
+---
+
+What happens to columns - for model training
+
+
+Column
+Use
+sentence_text
+core input
+entity_text
+explicitly injected
+task
+explicitly injected
+concept
+ignore (noisy)
+section
+optional (not needed)
+negated
+DO NOT include (label leakage risk)
 
 
 
 
+
+
+
+
+
+
+
+	•	Training size = 420 examples
+	•	Batch size = 16
+	•	Epochs = 3
+
+Steps per epoch = ceil(420 / 16) ≈ 27 steps.
+	•	Each step → model sees 16 examples and updates weights once.
+	•	One epoch → model sees all 420 examples once.
+	•	Total steps = steps per epoch × num_epochs = 27 × 3 ≈ 81 steps.
+	•	Logging every 10 steps → you’ll see 8 log entries over 3 epochs.
+
+
+
+
+
+
+Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
+
+Bio_ClinicalBERT was loaded with several pretrained weights not relevant to our binary classification task (MLM and NSP heads). These were ignored. The classification head weights were newly initialized and trained on our dataset, as intended.
+
+
+
+
+# Iterative Training Documentation - Hybrid Clinical Notes Extraction
+
+## Overview
+This document captures the iterative changes made during model training, key decisions, and resulting metrics. The goal is to stabilize training, improve accuracy/F1, and prevent overfitting.
+
+---
+
+## Phase 0: Baseline pipeline check
+- **Input:** Only `sentence_text`  
+- **Purpose:** Verify the pipeline runs; no meaningful learning expected.  
+- **Observations:** Training unstable (`grad_norm=nan`), accuracy at chance (~51%), F1 moderate (0.676) due to extreme class imbalance.  
+
+| Metric | Value |
+|--------|-------|
+| Eval Accuracy | 0.511 |
+| Eval F1 | 0.676 |
+| Eval Precision | 0.511 |
+| Eval Recall | 1.0 |
+| Loss | ~0.717 |
+
+**Conclusion:** Model cannot learn task without full context. Serves only as sanity check.
+
+---
+
+## Phase 1: Original full input
+- **Input:** `task + concept + entity_type + entity_text + sentence_text`  
+- **Problem:** Exploding gradients, training unstable, learning failed (~50% accuracy).  
+
+| Metric | Value |
+|--------|-------|
+| Eval Accuracy | 0.511 |
+| Eval F1 | 0.676 |
+| Eval Precision | 0.511 |
+| Eval Recall | 1.0 |
+| Loss | ~0.692 |
+
+**Conclusion:** Too many input features caused instability. Training failed; adjustments required.
+
+---
+
+## Phase 2: Hyperparameter adjustments
+- **Changes:**  
+  - Learning rate reduced: 2e-5 → 5e-6  
+  - Gradient clipping: max_grad_norm=1.0  
+  - Batch size reduced: 16 → 8  
+
+- **Result:** Stable training, no exploding gradients, improved metrics.  
+
+| Metric | Value |
+|--------|-------|
+| Eval Accuracy | 0.733 |
+| Eval F1 | 0.75 |
+| Eval Precision | 0.72 |
+| Eval Recall | 0.783 |
+| Loss | 0.645–0.658 |
+
+**Conclusion:** Proper hyperparameter tuning resolved exploding gradients and improved learning. This became the new baseline.
+
+---
+
+## Phase 3: Simplified input
+- **Changes:** Removed `entity_type` + `concept` to simplify input: `task + entity_text + sentence_text`  
+- **Purpose:** Reduce complexity; input better aligned with Bio_ClinicalBERT pretraining.  
+- **Result:** Metrics slightly decreased.  
+
+| Metric | Value |
+|--------|-------|
+| Eval Accuracy | 0.644–0.667 |
+| Eval F1 | 0.686–0.714 |
+| Eval Precision | 0.606–0.654 |
+| Eval Recall | 0.739–0.870 |
+| Loss | 0.630–0.662 |
+
+**Analysis:** Removing features reduced noise but also removed useful context, causing small metric drop. Training stable.
+
+---
+
+## Key Insights
+1. **Gradient issues**: Resolved by lowering LR, gradient clipping, and smaller batch size.  
+2. **Input complexity**: Too many concatenated fields cause instability; too few reduces performance.  
+3. **Dataset size**: Small dataset (~420 training examples) makes the model sensitive to input changes.  
+4. **Iterative process**: Documenting each change allows understanding impact on metrics and training stability.
+
+---
+
+## Next Steps
+1. **Hybrid input:** Keep `task + entity_text + sentence_text`, optionally add only the most informative features (e.g., `entity_type`).  
+2. **Classifier head fine-tuning:** Freeze BERT layers for initial epochs to prevent overfitting.  
+3. **Data augmentation:** Use paraphrasing, entity swapping, or synonym replacement to expand training examples.  
+4. **Cross-validation:** Implement k-fold validation to ensure robust performance evaluation.  
+5. **Metric tracking:** Maintain concise log tables for each iteration.
+
+
+
+
+
+
+1. **Dataset Columns Expanded**
+   - Original: `["sentence_text", "entity_text", "task", "label"]`
+   - Updated: `["sentence_text", "entity_type", "entity_text", "concept", "task", "label"]`
+   - This allows the model to learn from more contextual information.
+
+2. **Training Parameters**
+   - Epochs: 3 → 5
+   - Learning rate: 5e-6 → 3e-6
+   - Weight decay: 0.01 → 0.05
+   - Added gradient accumulation: `gradient_accumulation_steps=2`
+   - Added `warmup_ratio=0.1` and `lr_scheduler_type="linear"`
+
+3. **BERT Layers Frozen**
+   - `model.bert.parameters()` set `requires_grad = False`
+   - Unfreeze top 2 encoder layers for task-specific fine-tuning:
+     - `model.bert.encoder.layer[-2:].parameters()` set `param.requires_grad = True`
+   - Only `model.classifier.parameters()` trainable
+   
+   - Freezing most layers keeps pretrained knowledge and prevents overfitting.
+   - Unfreezing the top layers allows the model to adjust higher-level features for your specific task, which usually improves F1/accuracy slightly.
