@@ -2,20 +2,13 @@
 train_validate_transformer.py
 
 Purpose:
-    - Fine-tune a pretrained clinical transformer (BioClinicalBERT) on the
-      annotated dataset for binary classification (`is_valid`).
-    - Perform validation during training to monitor performance and select
-      the best model checkpoint.
-    - Output a trained model ready for downstream evaluation (Phase 4).
+
 
 Workflow:
 
 
 Outputs:
-    - models/bioclinicalbert/
-        - Fine-tuned model weights
-        - Tokenizer
-        - Training logs
+
 """
 
 import pandas as pd
@@ -27,9 +20,24 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     TrainingArguments,
-    Trainer
+    Trainer,
 )
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+
+# -------------------------
+# 0. Reproducibility
+# -------------------------
+import random
+import torch
+
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 # -------------------------
 # 1. Config
@@ -44,9 +52,9 @@ OUTPUT_DIR = "models/bioclinicalbert"
 Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
 MAX_LENGTH = 512
-BATCH_SIZE = 16
-EPOCHS = 3
-LEARNING_RATE = 2e-5
+BATCH_SIZE = 8
+EPOCHS = 5
+LEARNING_RATE = 3e-6
 
 # -------------------------
 # 2. Load Data
@@ -67,8 +75,12 @@ val_df["label"] = val_df["is_valid"].astype(int)
 # -------------------------
 
 # Convert pandas DataFrames to Hugging Face Dataset for training with the Transformers library
-train_dataset = Dataset.from_pandas(train_df[["sentence_text", "label"]])
-val_dataset = Dataset.from_pandas(val_df[["sentence_text", "label"]])
+train_dataset = Dataset.from_pandas(
+    train_df[["sentence_text", "entity_type", "entity_text", "concept", "task", "label"]]
+)
+val_dataset = Dataset.from_pandas(
+    val_df[["sentence_text", "entity_type", "entity_text", "concept", "task", "label"]]
+)
 
 # -------------------------
 # 4. Tokenization
@@ -77,10 +89,32 @@ val_dataset = Dataset.from_pandas(val_df[["sentence_text", "label"]])
 # Load the tokenizer for the pretrained model
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
+# Function to format input text for the model
+def format_input(example):
+    return (
+        f"[ENTITY TYPE] {example['entity_type']} "
+        f"[ENTITY] {example['entity_text']} "
+        f"[CONCEPT] {example['concept']} "
+        f"[TASK] {example['task']}"
+        f"[TEXT] {example['sentence_text']}"
+    )
+
 # Tokenization function applied to every example in the dataset
-def tokenize(sentence):
+def tokenize(batch):
+    # Combine relevant fields into a single input string for the model using the specified format.
+    texts = [
+        f"[ENTITY TYPE] {et} [ENTITY] {e} [CONCEPT] {c} [TASK] {t} [TEXT] {s}"
+        for et, e, c, t, s in zip( # Zip combines the fields from the batch into a single iterable of tuples
+            batch['entity_type'],
+            batch['entity_text'],
+            batch['concept'],
+            batch['task'],
+            batch['sentence_text']
+        )
+    ]
+
     return tokenizer(
-        sentence["sentence_text"],
+        texts,
         truncation=True, # Truncate sentences longer than MAX_LENGTH tokens
         padding="max_length", # Pad sentences shorter than MAX_LENGTH tokens
         max_length=MAX_LENGTH # Fix the input length to MAX_LENGTH for consistent input size to the model
@@ -141,12 +175,15 @@ training_args = TrainingArguments(
     per_device_train_batch_size=BATCH_SIZE, # Batch size for training (number of examples processed together in one forward/backward pass)
     per_device_eval_batch_size=BATCH_SIZE, # Batch size for evaluation
     num_train_epochs=EPOCHS,
-    weight_decay=0.01, # L2 regularization to prevent overfitting by penalizing large weights
+    warmup_ratio=0.1, # Warm up the learning rate for the first 10% of training steps to help stabilize training in the early stages
+    lr_scheduler_type="linear", # Use a learning rate scheduler that warms up the learning rate linearly for the first few steps and then decays it linearly
+    gradient_accumulation_steps=2,
+    max_grad_norm=1.0, # Gradient clipping to prevent exploding gradients by capping the maximum norm of the gradients during backpropagation
+    weight_decay=0.05, # L2 regularization to prevent overfitting by penalizing large weights
     load_best_model_at_end=True, # After training, load the model checkpoint that performed best on the validation set according to the specified metric
     metric_for_best_model="f1", # Use F1-score to determine the best model checkpoint during training (since we care about both precision and recall in this binary classification task)
-    logging_dir=f"{OUTPUT_DIR}/logs", # Directory to save training logs for visualization
     logging_steps=10, # Log training metrics every 10 steps
-    save_total_limit=2 # Limit the total number of saved checkpoints to 2 to save disk space (older checkpoints will be deleted)
+    save_total_limit=2 # Limit the total number of saved checkpoints to 2
 )
 
 # -------------------------
@@ -164,11 +201,51 @@ trainer = Trainer(
 )
 
 # -------------------------
-# 9. Train Model
+# 9. K-Fold Cross Validation (NEW)
 # -------------------------
+from sklearn.model_selection import StratifiedKFold
+from copy import deepcopy
 
-# Runs epochs, updates weights, evaluates each epoch, logs metrics
-trainer.train()
+NUM_FOLDS = 5
+skf = StratifiedKFold(n_splits=NUM_FOLDS, shuffle=True, random_state=SEED)
+all_metrics = []
+
+for fold, (train_idx, val_idx) in enumerate(skf.split(train_df, train_df['label'])):
+    print(f"\n=== Fold {fold + 1} / {NUM_FOLDS} ===")
+    
+    train_fold = Dataset.from_pandas(
+        train_df.iloc[train_idx][["sentence_text", "entity_type", "entity_text", "concept", "task", "label"]]
+    )
+    val_fold = Dataset.from_pandas(
+        train_df.iloc[val_idx][["sentence_text", "entity_type", "entity_text", "concept", "task", "label"]]
+    )
+    
+    train_fold = train_fold.map(tokenize, batched=True)
+    val_fold = val_fold.map(tokenize, batched=True)
+    
+    train_fold.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
+    val_fold.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
+    
+    fold_model = deepcopy(model)  # reset model weights for this fold
+    
+    trainer = Trainer(
+        model=fold_model,
+        args=training_args,
+        train_dataset=train_fold,
+        eval_dataset=val_fold,
+        tokenizer=tokenizer,
+        compute_metrics=compute_metrics
+    )
+    
+    trainer.train()
+    
+    metrics = trainer.evaluate()
+    all_metrics.append(metrics)
+    print(f"Fold {fold + 1} metrics: {metrics}")
+
+metrics_df = pd.DataFrame(all_metrics)
+print("CV mean metrics:\n", metrics_df.mean())
+print("CV std metrics:\n", metrics_df.std())
 
 # -------------------------
 # 10. Save Model
