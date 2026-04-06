@@ -2,13 +2,44 @@
 train_validate_transformer.py
 
 Purpose:
-
+    - Train and validate a transformer-based binary classification model (BioClinicalBERT)
+      for entity validation in clinical text. 
+    - The script performs standard fine-tuning using a predefined train/validation split, 
+      monitors performance via validation metrics, and assesses robustness using stratified K-fold cross-validation.
 
 Workflow:
-
+    1. Set reproducibility seeds for deterministic training.
+    2. Load pre-split training and validation datasets from disk.
+    3. Convert raw data into Hugging Face Dataset format.
+    4. Construct structured input sequences combining:
+    entity_type, entity_text, concept, task, and sentence_text.
+    5. Tokenize inputs using the pretrained BioClinicalBERT tokenizer.
+    6. Load BioClinicalBERT with a randomly initialised classification head.
+    7. Define evaluation metrics (accuracy, precision, recall, F1).
+    8. Configure training parameters (batch size, learning rate, scheduler, etc.).
+    9. Train the model using Hugging Face Trainer with epoch-level validation.
+    10. Perform 5-fold stratified cross-validation to assess robustness:
+        - Reset model for each fold
+        - Train and evaluate independently
+        - Aggregate metrics across folds
+    11. Save the final trained model and tokenizer.
 
 Outputs:
+- Trained model and tokenizer:
+  models/bioclinicalbert/
+    ├── config.json
+    ├── pytorch_model.bin
+    ├── tokenizer_config.json
+    ├── vocab.txt
+    └── special_tokens_map.json
 
+- Training logs (stdout):
+  - Training and validation metrics per epoch
+  - Cross-validation metrics per fold
+  - Aggregated mean and standard deviation of metrics
+
+- No intermediate artefacts are persisted beyond checkpoints
+  (limited by save_total_limit=2).
 """
 
 import pandas as pd
