@@ -2276,23 +2276,25 @@ Each phase represents a controlled change to either input representation or trai
 - Overall F1 worse than baseline  
 
 **Conclusion:**  
-- Additional complexity degraded performance → Dataset too small for complex tuning to be effective.
+- Additional complexity degraded performance → dataset too small for complex tuning to be effective.
 - Freezing may have limited the model's learning capacity for this specific task, preventing it from adapting to the nuances of entity validation.
 - Model became under-adaptive and over-regularised.
 
 ---
 
-#### 10.7 Sixth Training Run: Stratified Cross-Validation
+#### 10.7 Sixth Training Run: Stratified 5-Fold Cross-Validation
 
-**Changes:**
-- Removed freezing 
-- Retained advanced hyperparameters  
-- Applied 5-fold stratified cross-validation 
-
-**Rationale:**
-- Removed freezing as it did not improve performance
-- Assess robustness and stability of performance across different data splits
-- Confirm that results are not an artifact of a specific train/validation split
+**Changes and Rationale:**
+1. **Removed freezing:**
+  - All BERT layers are trainable again
+  - Allows full adaption to the task
+2. **Retained advanced hyperparameters:**
+  - To see if the tuning can improve performance when applied across multiple data splits 
+  - Maintains consistency with the previous run for comparability
+3. **Applied 5-fold stratified cross-validation:**
+  - Assess performance across different train/validation splits
+  - Provides a more robust estimate of generalisation performance
+  - Quantifies variability and stability of results
 
 **Results:**
 
@@ -2315,17 +2317,20 @@ Each phase represents a controlled change to either input representation or trai
 
 **Observations:**
 
-- Moderate average performance  
-- Noticeable variance across folds  
-- No improvement over Phase 2 baseline  
+- Performance decreased compared to baseline
+- High variability across folds (std = ±0.039 for F1)
+- Some folds perform reasonably well (F1 ~0.745), while others are much worse
 
 **Interpretation:**
 
 1. **Performance instability**  
   - Metrics vary across folds  
-  - Model sensitive to training data selection  
+  - Model sensitive to training data selection 
+  - Performance depends heavily on data splits, indicating overfitting 
 2. **No benefit from additional tuning**  
   - Advanced configuration does not outperform simpler baseline  
+  - Dataset size limits the effectiveness of tuning and regularisation
+  - Leads to increased variance without improving mean performance
 3. **Generalisation uncertainty**  
   - Variance indicates unreliable performance on unseen data  
 
@@ -2337,13 +2342,14 @@ Across all phases:
 
 - Best performance achieved early in the third training run (F1 = 0.75)
 - Subsequent tuning did not improve results  
-- Cross-validation confirms variability and instability  
+- Cross-validation confirms high variability and instability  
 
 Evidence indicates:
 
 - Model capacity is sufficient  
 - Input representation is adequate  
 - Training procedure is stable  
+- Simpler configuration performs best
 
 However:
 
@@ -2373,6 +2379,7 @@ We must stop further training iterations and hyperparameter tuning:
 
 - No observed performance gains  
 - Increased risk of overfitting 
+- Does not improve generalisation
 - Diminishing returns from further adjustments 
 
 ---
@@ -2382,7 +2389,7 @@ We must stop further training iterations and hyperparameter tuning:
 Increase the dataset size to enable further learning and performance improvements:
 
 - Expand annotated dataset from ~600 → 1200 samples  
-- Maintain the highest scoring configuration (third training run)
+- Maintain the highest scoring configuration (third training run) for simplicity
 - Retrain without introducing additional complexity (additional hyperparameters are not justified by current evidence)
 
 For future iterations training and scaling should stop when:
@@ -2392,6 +2399,104 @@ For future iterations training and scaling should stop when:
 - Precision improves without recall collapse  
 
 ---
+
+### 11. Workflow Implementation
+
+The final training workflow is implemented in `train_validate_transformer.py`. The end-to-end pipeline includes:
+
+1. **Reproducibility setup**
+  - Fix random seeds across `random`, `numpy`, and `torch`
+  - Enable deterministic CUDA behaviour
+  - Reproducible results across runs and environments
+
+2. **Configuration initialisation**
+  - Define file paths:
+    - `train.csv` (420 samples)
+    - `val.csv` (90 samples)
+  - Set model and training hyperparameters
+  - Create output directory: `models/bioclinicalbert/`
+
+3. **Data loading and preprocessing**
+  - Load CSV files into pandas DataFrames
+  - Convert boolean labels (`is_valid`) → integer labels (`0/1`)
+
+4. **Dataset construction**
+  - Convert DataFrames → Hugging Face `Dataset`
+  - Retain relevant fields: `sentence_text`, `entity_type`, `entity_text`, `concept`, `task`, `label`
+
+5. **Input formatting and tokenisation**
+  - Construct structured input string:
+     ```
+     [ENTITY TYPE] ... [ENTITY] ... [CONCEPT] ... [TASK] ... [TEXT] ...
+     ```
+  - Apply tokenizer with:
+    - Truncation (`max_length = 512`)
+    - Padding (`max_length`)
+  - Convert to PyTorch tensors: `input_ids`, `attention_mask`, `label`
+
+6. **Model initialisation**
+  - Load pretrained BioClinicalBERT
+  - Attach binary classification head (`num_labels = 2`)
+  - Classification head weights randomly initialised
+
+7. **Metric definition**
+  - Compute:
+    - Accuracy
+    - Precision
+    - Recall
+    - F1-score (primary metric)
+
+8. **Training configuration**
+  - Key settings:
+    - Batch size = 8
+    - Gradient accumulation = 2 (effective batch = 16)
+    - Epochs = 5
+    - Learning rate = 3e-6
+    - Warmup ratio = 0.1
+    - Linear scheduler
+    - Gradient clipping = 1.0
+    - Weight decay = 0.05
+  - Validation and checkpointing:
+    - Evaluation per epoch
+    - Best model selected via F1-score
+
+9. **Model training (standard validation)**
+  - Train using `Trainer`
+  - Perform:
+    - Forward pass → logits
+    - Loss computation → backpropagation
+    - Optimizer + scheduler updates
+  - Validate at end of each epoch
+  - Track best-performing checkpoint
+
+10. **Cross-validation (robustness assessment)**
+  - Apply 5-fold stratified split on training data (420 samples)
+  - For each fold:
+    - Create train/validation subsets (~336 / ~84)
+    - Re-tokenize data
+    - Reset model weights (`deepcopy`)
+    - Train and evaluate independently
+  - Store metrics per fold
+  - Aggregate:
+    - Mean performance
+    - Standard deviation (stability)
+
+11. **Model saving**
+  - Save final trained model: `models/bioclinicalbert/`
+    - Model weights (`pytorch_model.bin`)  
+    - Model configuration (`config.json`)  
+  - Save Tokenizer files (`vocab.txt`, `tokenizer_config.json`, etc.)  
+    - Ensures full reproducibility and usability of the model for inference
+
+12. **Output reporting**
+  - Print:
+    - Training progress logs
+    - Epoch-level training + validation metrics  
+    - Fold-level cross-validation metrics  
+    - Aggregated CV statistics (mean ± standard deviation)  
+
+---
+
 
 
 
