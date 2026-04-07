@@ -2531,6 +2531,47 @@ Doubling the dataset from 600 to 1200:
 This approach follows standard machine learning practice, where dataset size is increased incrementally and performance is reassessed after each scaling step.
 
 
+---
+
+### 3. Sampling Additional Data and Manual Annotation
+
+#### 3.1 Objective
+
+- Generate a new, balanced, annotation-ready dataset of extracted clinical entities for transformer validation, while avoiding overlap with the previously sampled dataset.  
+- Manually annotate the new dataset with binary labels (`is_valid`) indicating whether each entity is a valid extraction in its context, following the same annotation guidelines as before.
+
+---
+
+#### 3.2 Sampling, Annotation, and Validation Strategy
+
+Sampling strategy is exactly the same as before, with the following key steps:
+
+1. Sample by `entity_type` to ensure class balance across SYMPTOM, INTERVENTION, and CLINICAL_CONDITION
+2. Concatenate the 3 entity types together to form a single dataset of 600 samples (200 per entity type)
+3. Randomly shuffle the dataset with a fixed seed for reproducibility
+
+Annotation Strategy remains consistent with the previous process:
+
+- Each new entity is assigned an empty `is_valid` column for subsequent manual labeling.
+- The same annotation event-based and status-based guidelines per entity type are applied to ensure consistency in labeling criteria across both datasets.
+
+Validation of the new annotated dataset will be the same as before, printing metrics to make sure sampling, annotation labels, and class balance are all correct before proceeding to model training.
+
+---
+
+#### 3.3 Deduplication Strategy
+
+The critical new addition when sampling is the addition of filtering logic for deduplication. To prevent duplicates between the new sample and the previous 600 annotated entities:
+
+- We perform row-level deduplication based on the five key columns which the trasnformer uses: `sentence_text`, `entity_text`, `entity_type`, `concept`, `task`.
+- Tuple-based comparison is used for this purpose:
+  - The row-wise structure (`df_tuples`) is kept as a pandas Series of tuples, aligned with the DataFrame, to generate a boolean mask for filtering.
+  - Only the lookup structure (`existing_tuples`) is converted to a set for
+  efficient membership testing.
+- This approach ensures that any entity-context combination already present in the previous sample is excluded from the new dataset, regardless of row index or repeated occurrences.
+
+
+
 
 
 
