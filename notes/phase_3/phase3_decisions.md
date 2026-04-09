@@ -2591,6 +2591,15 @@ Training complete. Final model saved.
 
 ---
 
+mistake made, when adding CV, i did not know that CV replaces validation, meaning that the CV should have been done on both training + val set (510 samples) rather than just the training set (420 samples). and also this would make the final model training + validation redundant since the CV was already done to validate the model.
+CV gives us everythign that validation would - the stuff about early stopping, the best checkpoint, the performance metrics - but it also gives us a much more robust estimate of generalisation performance and stability across different data splits.
+
+this isnt a critical error since the results patterns and trends will still hold, its just slightly redundant and inefificent since we are doing this on a smaller datatset than we could have, and also doing another validation step when training the model.
+
+This is why when we retrain on the larger dataset (1200 samples) we no longer have a validation split we are no longer doing 3 fold split anymore, we will just do CV which means we only need a train set and test set, and we will do CV on the train set to get the best checkpoint and metrics etc, and then we will do a final training on the full train set and evaluate on the test set, which is a more standard and efficient workflow.
+
+---
+
 #### 10.8 Global Interpretation
 
 Across all phases:
@@ -3476,3 +3485,12 @@ dtype: float64
             config  mean_accuracy  std_accuracy   mean_f1    std_f1  mean_precision  std_precision  mean_recall  std_recall
 1  config_advanced       0.704902      0.030886  0.710468  0.024654        0.699628       0.038773     0.723529    0.034244
 0    config_stable       0.708824      0.034244  0.701064  0.031547        0.722025       0.042793     0.682353    0.033678
+
+
+---
+
+Threshold tuning - for final model selection
+
+error analysis - post hoc analysis
+
+ablation study - post hoc analysis
