@@ -2011,8 +2011,7 @@ This ensures strict separation between evaluation and training.
 - Performed before final training to assess robustness and generalisation stability  
   - Models trained during cross-validation are discarded after evaluation  
   - No weights or parameters are carried over into final training  
-- Not used in this pipeline for training decisions (e.g., hyperparameter tuning or checkpoint selection)  
-- Does not produce the final deployed model (final training uses the predefined train/validation split)
+- Does not produce the final deployed model, final training uses the predefined train/validation split for checkpointing and model selection
 
 Cross-validation is used to verify that performance is stable across data splits, rather than to produce the deployed model.
 
@@ -2115,7 +2114,57 @@ Each phase represents a controlled change to either input representation or trai
 
 ---
 
-#### 10.2 First Training Run: Pipeline Sanity Check
+#### 10.2 Evolution and Design Change
+
+The model development pipeline evolved iteratively as understanding of validation strategies improved. These changes were incremental and reflect a transition from standard practice to a more statistically robust approach.
+
+These initial approaches were:
+
+- Dataset split into: Train / Validation / Test (3-way split)
+- Validation set used to:
+  - Monitor performance during training
+  - Guide hyperparameter tuning
+  - Select best model checkpoints  
+- This allowed for controlled experimentation and comparability across runs 
+
+However in the final iteration, a 5-fold cross-validation approach was adopted:
+
+- Purpose:
+  - Assess robustness across multiple data splits  
+  - Quantify variance and stability of performance  
+- However:
+  - CV was applied only to the training subset (420 samples), not the combined train + validation data (510 samples)
+  - A separate validation step was still retained during final model training 
+
+A methodological limitation was identified in the final iteration:
+
+- Cross-validation functionally replaces the need for a dedicated validation set  
+- Optimal approach would have been to perform CV on the full training pool (train + validation = 510 samples)  
+- As implemented:
+  - Data utilisation was suboptimal  
+  - Validation was effectively duplicated:
+    - CV provided performance estimation and model selection  
+    - Final validation step repeated similar evaluation  
+
+However, this is not a critical error because:
+
+- Performance trends and conclusions remain valid  
+- Model behaviour (e.g. variance, recall bias, performance ceiling) is consistent  
+- The primary issue is:
+  - Redundancy and inefficiency  
+  - Slight underuse of available labelled data  
+
+The pipeline overall remains valid:
+
+- The validation set guided training and hyperparameter selection  
+- Cross-validation confirmed generalisation performance and variability  
+- Combined effect is both local (per-run) and global (distributional) performance insight  
+
+This structure is methodologically acceptable and commonly observed in exploratory model development, despite not being maximally efficient.
+
+---
+
+#### 10.3 First Training Run: Pipeline Sanity Check
 
 **Input:**  
 - `sentence_text` only  
@@ -2145,7 +2194,7 @@ Each phase represents a controlled change to either input representation or trai
 
 ---
 
-#### 10.3 Second Training Run: Full Input Representation
+#### 10.4 Second Training Run: Full Input Representation
 
 **Input:**  
 - `task + concept + entity_type + entity_text + sentence_text`
@@ -2178,7 +2227,7 @@ Each phase represents a controlled change to either input representation or trai
 
 ---
 
-#### 10.4 Third Training Run: Hyperparameter Stabilisation (Best Configuration)
+#### 10.5 Third Training Run: Hyperparameter Stabilisation (Best Configuration)
 
 **Changes and Rationale:**
 1. **Learning rate:** `2e-5 → 5e-6`  
@@ -2213,7 +2262,7 @@ Each phase represents a controlled change to either input representation or trai
 
 ---
 
-#### 10.5 Fourth Training Run: Simplified Input
+#### 10.6 Fourth Training Run: Simplified Input
 
 **Changes:**
 - Removed `entity_type` and `concept`  
@@ -2244,7 +2293,7 @@ Each phase represents a controlled change to either input representation or trai
 
 ---
 
-#### 10.6 Fifth Training Run: Advanced Tuning and Partial Freezing
+#### 10.7 Fifth Training Run: Advanced Tuning and Partial Freezing
 
 **Changes and Rationale:**
 1. **Epochs:** `3 → 5` 
@@ -2293,374 +2342,171 @@ Each phase represents a controlled change to either input representation or trai
 
 ---
 
-#### 10.7 Sixth Training Run: Stratified 5-Fold Cross-Validation
+#### 10.8 Sixth Training Run: Stratified 5-Fold Cross-Validation
 
 **Changes and Rationale:**
 1. **Removed freezing:**
   - All BERT layers are trainable again
   - Allows full adaption to the task
 2. **Retained advanced hyperparameters:**
-  - To see if the tuning can improve performance when applied across multiple data splits 
-  - Maintains consistency with the previous run for comparability
+  - Maintain consistency with the previous run for controlled comparison
+	-	Evaluate whether prior tuning generalises across multiple splits
 3. **Applied 5-fold stratified cross-validation:**
-  - Assess performance across different train/validation splits
-  - Provides a more robust estimate of generalisation performance
-  - Quantifies variability and stability of results
+  -	Reduces dependence on a single validation split
+	-	Provides a more reliable estimate of generalisation performance
+	-	Enables quantification of variance and model stability
 
 **CV Results:**
 
-Fold
-Accuracy
-F1
-Precision
-Recall
-1
-0.6429
-0.7000
-0.6034
-0.8333
-2
-0.7381
-0.7660
-0.7059
-0.8372
-3
-0.7262
-0.7579
-0.6923
-0.8372
-4
-0.5714
-0.6786
-0.5507
-0.8837
-5
-0.7262
-0.7294
-0.7381
-0.7209
+| Fold | Accuracy | F1     | Precision | Recall |
+|------|----------|--------|-----------|--------|
+| 1    | 0.6429   | 0.7000 | 0.6034    | 0.8333 |
+| 2    | 0.7381   | 0.7660 | 0.7059    | 0.8372 |
+| 3    | 0.7262   | 0.7579 | 0.6923    | 0.8372 |
+| 4    | 0.5714   | 0.6786 | 0.5507    | 0.8837 |
+| 5    | 0.7262   | 0.7294 | 0.7381    | 0.7209 |
+
+| Metric    | Mean  | Std   |
+|-----------|------|-------|
+| Accuracy  | 0.6810 | 0.0721 |
+| F1        | 0.7264 | 0.0373 |
+| Precision | 0.6581 | 0.0781 |
+| Recall    | 0.8225 | 0.0604 |
 
 
-Metric
-Mean
-Std
-Accuracy
-0.6810
-0.0721
-F1
-0.7264
-0.0373
-Precision
-0.6581
-0.0781
-Recall
-0.8225
-0.0604
+**Final Model Results (Post-CV Training):**
 
-
-**Final Results:**
-
-| Metric | Range |
-|--------|-------|
-| Accuracy |  |
-| F1 |  |
-| Precision |  |
-| Recall |  |
-| Loss |  |
+| Metric    | Value |
+|-----------|-------|
+| Accuracy  | 0.6889 |
+| F1        | 0.7021 |
+| Precision | 0.6875 |
+| Recall    | 0.7174 |
+| Loss      | 0.6500 |
 
 **Observations:**
 
-	•	F1 (primary metric):
-	•	Mean = 0.726 → expected generalisation performance
-	•	Std = 0.037 → low variability → stable model
-	•	Recall > Precision pattern:
-	•	Recall = 0.82, Precision = 0.66
-	•	Model is biased toward sensitivity (detects positives well, but more false positives)
-	•	Variance across folds:
-	•	Accuracy std ≈ 0.07 → moderate variability (expected given small dataset ~420)
-	•	Worst fold (Fold 4):
-	•	Lower accuracy (0.57) but still reasonable F1 (0.68)
-	•	Suggests data split sensitivity but not catastrophic instability
+1. **F1 (primary metric):**
+	-	CV Mean = 0.726 → expected generalisation performance
+	-	Final Model = 0.702 → slightly lower but within expected variance
+	-	Std = 0.037 → relatively low → stable across folds
+2. **Precision–Recall Trade-off:**
+	-	During CV:
+    -	Recall (0.82) > Precision (0.66)
+    -	Model favours sensitivity → captures positives well but produces more false positives
+	-	Final model:
+    -	Precision (0.69) and Recall (0.72) more balanced
+    -	Suggests averaging effect when trained on full dataset
+3. **Variance Across Folds:**
+	-	Accuracy std ≈ 0.07 → moderate variability
+	-	Indicates sensitivity to data splits (expected given small dataset size ~420)
+4. **Worst-case Fold (Fold 4):**
+	-	Accuracy = 0.57, F1 = 0.68
+	-	Performance drop not catastrophic → model retains baseline competence
+	-	Confirms instability is present but bounded
+5. **Training Dynamics:**
+	-	Gradual loss reduction (~0.69 → ~0.65) indicates stable optimisation
+	-	No evidence of severe overfitting (validation metrics improve alongside training)
+	-	However, gains plateau early → model capacity exceeds dataset signal
 
-comparison to baseline (third training run):
+**Comparison to Baseline (Third Training Run):**
+
+- No substantial improvement in mean F1 despite increased complexity
+-	Advanced tuning does not translate into consistent gains
 
 **Interpretation:**
 
-1. **Performance instability**  
-  - Metrics vary across folds  
-  - Model sensitive to training data selection 
-  - Performance depends heavily on data splits, indicating overfitting 
-2. **No benefit from additional tuning**  
-  - Advanced configuration does not outperform simpler baseline  
-  - Dataset size limits the effectiveness of tuning and regularisation
-  - Leads to increased variance without improving mean performance
-3. **Generalisation uncertainty**  
-  - Variance indicates unreliable performance on unseen data  
+1. **Performance Instability**
+	-	Metrics vary meaningfully across folds
+	-	Model performance is dependent on data partitioning
+	-	Indicates limited robustness due to small dataset size
+2. **Diminishing Returns from Tuning**
+	-	Advanced configuration does not outperform simpler setups
+	-	Additional parameters increase variance without improving central tendency
+	-	Suggests dataset is the primary bottleneck, not model capacity
+3. **Generalisation Uncertainty**
+	-	CV variance demonstrates that true performance is uncertain within a range (~0.69–0.76 F1)
+	-	Single split evaluation would have been misleading
+4. **Key Insight Driving Next Step**
+	-	Model is data-limited, not architecture-limited
+	-	Performance ceiling (~0.72 F1) reflects insufficient training signal
+	-	Justifies transition to expanded manual annotation
 
 ---
 
-Here is my full final run for the trained transformer. This will be the final one before we retrain on the 1200 - we will need to update our notes but first please analyse and give me insights:
-
-Train size: 420
-Validation size: 90
-/Users/simonyip/Hybrid-Clinical-Notes-Extraction-Pipeline/venv/lib/python3.11/site-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
-  warnings.warn(
-Map: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 420/420 [00:00<00:00, 5861.61 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 90/90 [00:00<00:00, 7021.98 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-
-===== RUNNING CROSS-VALIDATION =====
-
-=== Fold 1 / 5 ===
-Map: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 336/336 [00:00<00:00, 7834.68 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 84/84 [00:00<00:00, 6903.26 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.707, 'grad_norm': 6.0354390144348145, 'learning_rate': 2.7272727272727272e-06, 'epoch': 0.48}                                                                     
-{'loss': 0.6945, 'grad_norm': 4.542715072631836, 'learning_rate': 2.7127659574468088e-06, 'epoch': 0.95}                                                                     
-{'eval_loss': 0.6863413453102112, 'eval_accuracy': 0.5, 'eval_f1': 0.6440677966101694, 'eval_precision': 0.5, 'eval_recall': 0.9047619047619048, 'eval_runtime': 3.7859, 'eval_samples_per_second': 22.187, 'eval_steps_per_second': 2.906, 'epoch': 1.0}                                                                                                 
-{'loss': 0.6811, 'grad_norm': 4.770979881286621, 'learning_rate': 2.3936170212765957e-06, 'epoch': 1.43}                                                                     
-{'loss': 0.6854, 'grad_norm': 4.267581462860107, 'learning_rate': 2.074468085106383e-06, 'epoch': 1.9}                                                                       
-{'eval_loss': 0.6778864860534668, 'eval_accuracy': 0.5357142857142857, 'eval_f1': 0.6422018348623854, 'eval_precision': 0.5223880597014925, 'eval_recall': 0.8333333333333334, 'eval_runtime': 3.6022, 'eval_samples_per_second': 23.319, 'eval_steps_per_second': 3.054, 'epoch': 2.0}                                                                   
-{'loss': 0.6607, 'grad_norm': 3.3178534507751465, 'learning_rate': 1.7553191489361702e-06, 'epoch': 2.38}                                                                    
-{'loss': 0.6752, 'grad_norm': 7.511821746826172, 'learning_rate': 1.4361702127659576e-06, 'epoch': 2.86}                                                                     
-{'eval_loss': 0.6651360988616943, 'eval_accuracy': 0.6071428571428571, 'eval_f1': 0.6796116504854369, 'eval_precision': 0.5737704918032787, 'eval_recall': 0.8333333333333334, 'eval_runtime': 3.6247, 'eval_samples_per_second': 23.174, 'eval_steps_per_second': 3.035, 'epoch': 3.0}                                                                   
-{'loss': 0.6426, 'grad_norm': 5.404907703399658, 'learning_rate': 1.1170212765957447e-06, 'epoch': 3.33}                                                                     
-{'loss': 0.6547, 'grad_norm': 8.693889617919922, 'learning_rate': 7.978723404255319e-07, 'epoch': 3.81}                                                                      
-{'eval_loss': 0.6610027551651001, 'eval_accuracy': 0.6190476190476191, 'eval_f1': 0.6862745098039216, 'eval_precision': 0.5833333333333334, 'eval_recall': 0.8333333333333334, 'eval_runtime': 3.5619, 'eval_samples_per_second': 23.583, 'eval_steps_per_second': 3.088, 'epoch': 4.0}                                                                   
-{'loss': 0.6655, 'grad_norm': 4.740090847015381, 'learning_rate': 4.787234042553192e-07, 'epoch': 4.29}                                                                      
-{'loss': 0.6419, 'grad_norm': 4.609196186065674, 'learning_rate': 1.5957446808510638e-07, 'epoch': 4.76}                                                                     
-{'eval_loss': 0.6593428254127502, 'eval_accuracy': 0.6428571428571429, 'eval_f1': 0.7, 'eval_precision': 0.603448275862069, 'eval_recall': 0.8333333333333334, 'eval_runtime': 3.5703, 'eval_samples_per_second': 23.528, 'eval_steps_per_second': 3.081, 'epoch': 5.0}                                                                                   
-{'train_runtime': 272.9167, 'train_samples_per_second': 6.156, 'train_steps_per_second': 0.385, 'train_loss': 0.668915353502546, 'epoch': 5.0}                               
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 105/105 [04:32<00:00,  2.60s/it]
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:03<00:00,  3.42it/s]
-Fold 1 metrics: {'eval_loss': 0.6593428254127502, 'eval_accuracy': 0.6428571428571429, 'eval_f1': 0.7, 'eval_precision': 0.603448275862069, 'eval_recall': 0.8333333333333334, 'eval_runtime': 3.5713, 'eval_samples_per_second': 23.521, 'eval_steps_per_second': 3.08, 'epoch': 5.0}
-
-=== Fold 2 / 5 ===
-Map: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 336/336 [00:00<00:00, 4473.98 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 84/84 [00:00<00:00, 6359.25 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6986, 'grad_norm': 3.763268232345581, 'learning_rate': 2.7272727272727272e-06, 'epoch': 0.48}                                                                     
-{'loss': 0.6831, 'grad_norm': 2.286144495010376, 'learning_rate': 2.7127659574468088e-06, 'epoch': 0.95}                                                                     
-{'eval_loss': 0.67332524061203, 'eval_accuracy': 0.5833333333333334, 'eval_f1': 0.7008547008547008, 'eval_precision': 0.5540540540540541, 'eval_recall': 0.9534883720930233, 'eval_runtime': 3.5849, 'eval_samples_per_second': 23.432, 'eval_steps_per_second': 3.068, 'epoch': 1.0}                                                                     
-{'loss': 0.6699, 'grad_norm': 4.910408973693848, 'learning_rate': 2.3936170212765957e-06, 'epoch': 1.43}                                                                     
-{'loss': 0.6738, 'grad_norm': 2.728898525238037, 'learning_rate': 2.074468085106383e-06, 'epoch': 1.9}                                                                       
-{'eval_loss': 0.6578093767166138, 'eval_accuracy': 0.7142857142857143, 'eval_f1': 0.7551020408163265, 'eval_precision': 0.6727272727272727, 'eval_recall': 0.8604651162790697, 'eval_runtime': 3.5678, 'eval_samples_per_second': 23.544, 'eval_steps_per_second': 3.083, 'epoch': 2.0}                                                                   
-{'loss': 0.6642, 'grad_norm': 4.079012393951416, 'learning_rate': 1.7553191489361702e-06, 'epoch': 2.38}                                                                     
-{'loss': 0.6526, 'grad_norm': 7.0983099937438965, 'learning_rate': 1.4361702127659576e-06, 'epoch': 2.86}                                                                    
-{'eval_loss': 0.6490338444709778, 'eval_accuracy': 0.7380952380952381, 'eval_f1': 0.7659574468085106, 'eval_precision': 0.7058823529411765, 'eval_recall': 0.8372093023255814, 'eval_runtime': 3.5719, 'eval_samples_per_second': 23.517, 'eval_steps_per_second': 3.08, 'epoch': 3.0}                                                                    
-{'loss': 0.6487, 'grad_norm': 5.792099952697754, 'learning_rate': 1.1170212765957447e-06, 'epoch': 3.33}                                                                     
-{'loss': 0.6522, 'grad_norm': 4.63058614730835, 'learning_rate': 7.978723404255319e-07, 'epoch': 3.81}                                                                       
-{'eval_loss': 0.6431766152381897, 'eval_accuracy': 0.7261904761904762, 'eval_f1': 0.7578947368421053, 'eval_precision': 0.6923076923076923, 'eval_recall': 0.8372093023255814, 'eval_runtime': 3.5755, 'eval_samples_per_second': 23.493, 'eval_steps_per_second': 3.076, 'epoch': 4.0}                                                                   
-{'loss': 0.6604, 'grad_norm': 3.549254894256592, 'learning_rate': 4.787234042553192e-07, 'epoch': 4.29}                                                                      
-{'loss': 0.6245, 'grad_norm': 5.618312358856201, 'learning_rate': 1.5957446808510638e-07, 'epoch': 4.76}                                                                     
-{'eval_loss': 0.6409371495246887, 'eval_accuracy': 0.7261904761904762, 'eval_f1': 0.7578947368421053, 'eval_precision': 0.6923076923076923, 'eval_recall': 0.8372093023255814, 'eval_runtime': 3.5741, 'eval_samples_per_second': 23.502, 'eval_steps_per_second': 3.078, 'epoch': 5.0}                                                                   
-{'train_runtime': 274.1845, 'train_samples_per_second': 6.127, 'train_steps_per_second': 0.383, 'train_loss': 0.6619382199786958, 'epoch': 5.0}                              
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 105/105 [04:34<00:00,  2.61s/it]
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:03<00:00,  3.42it/s]
-Fold 2 metrics: {'eval_loss': 0.6490338444709778, 'eval_accuracy': 0.7380952380952381, 'eval_f1': 0.7659574468085106, 'eval_precision': 0.7058823529411765, 'eval_recall': 0.8372093023255814, 'eval_runtime': 3.5798, 'eval_samples_per_second': 23.465, 'eval_steps_per_second': 3.073, 'epoch': 5.0}
-
-=== Fold 3 / 5 ===
-Map: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 336/336 [00:00<00:00, 4101.52 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 84/84 [00:00<00:00, 6371.90 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6878, 'grad_norm': 3.5712032318115234, 'learning_rate': 2.7272727272727272e-06, 'epoch': 0.48}                                                                    
-{'loss': 0.6868, 'grad_norm': 2.7712812423706055, 'learning_rate': 2.7127659574468088e-06, 'epoch': 0.95}                                                                    
-{'eval_loss': 0.6730868220329285, 'eval_accuracy': 0.6428571428571429, 'eval_f1': 0.7413793103448276, 'eval_precision': 0.589041095890411, 'eval_recall': 1.0, 'eval_runtime': 3.5689, 'eval_samples_per_second': 23.537, 'eval_steps_per_second': 3.082, 'epoch': 1.0}                                                                                   
-{'loss': 0.6833, 'grad_norm': 2.6880381107330322, 'learning_rate': 2.3936170212765957e-06, 'epoch': 1.43}                                                                    
-{'loss': 0.6749, 'grad_norm': 2.5890159606933594, 'learning_rate': 2.074468085106383e-06, 'epoch': 1.9}                                                                      
-{'eval_loss': 0.6580777168273926, 'eval_accuracy': 0.7261904761904762, 'eval_f1': 0.7578947368421053, 'eval_precision': 0.6923076923076923, 'eval_recall': 0.8372093023255814, 'eval_runtime': 3.6023, 'eval_samples_per_second': 23.318, 'eval_steps_per_second': 3.054, 'epoch': 2.0}                                                                   
-{'loss': 0.662, 'grad_norm': 3.3416481018066406, 'learning_rate': 1.7553191489361702e-06, 'epoch': 2.38}                                                                     
-{'loss': 0.6566, 'grad_norm': 3.86834716796875, 'learning_rate': 1.4361702127659576e-06, 'epoch': 2.86}                                                                      
-{'eval_loss': 0.6467102766036987, 'eval_accuracy': 0.7023809523809523, 'eval_f1': 0.7191011235955056, 'eval_precision': 0.6956521739130435, 'eval_recall': 0.7441860465116279, 'eval_runtime': 6.0126, 'eval_samples_per_second': 13.971, 'eval_steps_per_second': 1.829, 'epoch': 3.0}                                                                   
-{'loss': 0.649, 'grad_norm': 2.3948111534118652, 'learning_rate': 1.1170212765957447e-06, 'epoch': 3.33}                                                                     
-{'loss': 0.6589, 'grad_norm': 4.427390098571777, 'learning_rate': 7.978723404255319e-07, 'epoch': 3.81}                                                                      
-{'eval_loss': 0.6397492289543152, 'eval_accuracy': 0.7023809523809523, 'eval_f1': 0.7191011235955056, 'eval_precision': 0.6956521739130435, 'eval_recall': 0.7441860465116279, 'eval_runtime': 3.6629, 'eval_samples_per_second': 22.933, 'eval_steps_per_second': 3.003, 'epoch': 4.0}                                                                   
-{'loss': 0.6445, 'grad_norm': 3.4643948078155518, 'learning_rate': 4.787234042553192e-07, 'epoch': 4.29}                                                                     
-{'loss': 0.6305, 'grad_norm': 2.284899950027466, 'learning_rate': 1.5957446808510638e-07, 'epoch': 4.76}                                                                     
-{'eval_loss': 0.6379217505455017, 'eval_accuracy': 0.7142857142857143, 'eval_f1': 0.7272727272727273, 'eval_precision': 0.7111111111111111, 'eval_recall': 0.7441860465116279, 'eval_runtime': 3.5854, 'eval_samples_per_second': 23.428, 'eval_steps_per_second': 3.068, 'epoch': 5.0}                                                                   
-{'train_runtime': 337.6098, 'train_samples_per_second': 4.976, 'train_steps_per_second': 0.311, 'train_loss': 0.6618761516752697, 'epoch': 5.0}                              
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 105/105 [05:37<00:00,  3.22s/it]
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:03<00:00,  3.40it/s]
-Fold 3 metrics: {'eval_loss': 0.6580777168273926, 'eval_accuracy': 0.7261904761904762, 'eval_f1': 0.7578947368421053, 'eval_precision': 0.6923076923076923, 'eval_recall': 0.8372093023255814, 'eval_runtime': 3.9117, 'eval_samples_per_second': 21.474, 'eval_steps_per_second': 2.812, 'epoch': 5.0}
-
-=== Fold 4 / 5 ===
-Map: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 336/336 [00:00<00:00, 3674.78 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 84/84 [00:00<00:00, 5316.78 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6884, 'grad_norm': 3.1973319053649902, 'learning_rate': 2.7272727272727272e-06, 'epoch': 0.48}                                                                    
-{'loss': 0.6917, 'grad_norm': 6.196396827697754, 'learning_rate': 2.7127659574468088e-06, 'epoch': 0.95}                                                                     
-{'eval_loss': 0.6843015551567078, 'eval_accuracy': 0.5714285714285714, 'eval_f1': 0.6785714285714286, 'eval_precision': 0.5507246376811594, 'eval_recall': 0.8837209302325582, 'eval_runtime': 3.5706, 'eval_samples_per_second': 23.526, 'eval_steps_per_second': 3.081, 'epoch': 1.0}                                                                   
-{'loss': 0.6632, 'grad_norm': 2.9160029888153076, 'learning_rate': 2.3936170212765957e-06, 'epoch': 1.43}                                                                    
-{'loss': 0.6656, 'grad_norm': 4.457300662994385, 'learning_rate': 2.074468085106383e-06, 'epoch': 1.9}                                                                       
-{'eval_loss': 0.6714984178543091, 'eval_accuracy': 0.5833333333333334, 'eval_f1': 0.6067415730337079, 'eval_precision': 0.5869565217391305, 'eval_recall': 0.627906976744186, 'eval_runtime': 3.586, 'eval_samples_per_second': 23.424, 'eval_steps_per_second': 3.067, 'epoch': 2.0}                                                                     
-{'loss': 0.679, 'grad_norm': 2.7906129360198975, 'learning_rate': 1.7553191489361702e-06, 'epoch': 2.38}                                                                     
-{'loss': 0.6546, 'grad_norm': 2.972210645675659, 'learning_rate': 1.4361702127659576e-06, 'epoch': 2.86}                                                                     
-{'eval_loss': 0.6615092158317566, 'eval_accuracy': 0.6666666666666666, 'eval_f1': 0.6585365853658537, 'eval_precision': 0.6923076923076923, 'eval_recall': 0.627906976744186, 'eval_runtime': 3.5565, 'eval_samples_per_second': 23.619, 'eval_steps_per_second': 3.093, 'epoch': 3.0}                                                                    
-{'loss': 0.6319, 'grad_norm': 3.6136271953582764, 'learning_rate': 1.1170212765957447e-06, 'epoch': 3.33}                                                                    
-{'loss': 0.6493, 'grad_norm': 4.608612537384033, 'learning_rate': 7.978723404255319e-07, 'epoch': 3.81}                                                                      
-{'eval_loss': 0.6559381484985352, 'eval_accuracy': 0.6785714285714286, 'eval_f1': 0.6746987951807228, 'eval_precision': 0.7, 'eval_recall': 0.6511627906976745, 'eval_runtime': 3.5552, 'eval_samples_per_second': 23.627, 'eval_steps_per_second': 3.094, 'epoch': 4.0}                                                                                  
-{'loss': 0.6314, 'grad_norm': 4.12700080871582, 'learning_rate': 4.787234042553192e-07, 'epoch': 4.29}                                                                       
-{'loss': 0.6251, 'grad_norm': 4.825655460357666, 'learning_rate': 1.5957446808510638e-07, 'epoch': 4.76}                                                                     
-{'eval_loss': 0.6544142365455627, 'eval_accuracy': 0.6666666666666666, 'eval_f1': 0.6666666666666666, 'eval_precision': 0.6829268292682927, 'eval_recall': 0.6511627906976745, 'eval_runtime': 3.5717, 'eval_samples_per_second': 23.518, 'eval_steps_per_second': 3.08, 'epoch': 5.0}                                                                    
-{'train_runtime': 272.7271, 'train_samples_per_second': 6.16, 'train_steps_per_second': 0.385, 'train_loss': 0.6568331582205637, 'epoch': 5.0}                               
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 105/105 [04:32<00:00,  2.60s/it]
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:03<00:00,  3.44it/s]
-Fold 4 metrics: {'eval_loss': 0.6843015551567078, 'eval_accuracy': 0.5714285714285714, 'eval_f1': 0.6785714285714286, 'eval_precision': 0.5507246376811594, 'eval_recall': 0.8837209302325582, 'eval_runtime': 3.5587, 'eval_samples_per_second': 23.604, 'eval_steps_per_second': 3.091, 'epoch': 5.0}
-
-=== Fold 5 / 5 ===
-Map: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 336/336 [00:00<00:00, 3456.40 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 84/84 [00:00<00:00, 7162.90 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6983, 'grad_norm': 2.2787249088287354, 'learning_rate': 2.7272727272727272e-06, 'epoch': 0.48}                                                                    
-{'loss': 0.6902, 'grad_norm': 3.2216548919677734, 'learning_rate': 2.7127659574468088e-06, 'epoch': 0.95}                                                                    
-{'eval_loss': 0.6793776154518127, 'eval_accuracy': 0.5952380952380952, 'eval_f1': 0.6851851851851852, 'eval_precision': 0.5692307692307692, 'eval_recall': 0.8604651162790697, 'eval_runtime': 3.5459, 'eval_samples_per_second': 23.689, 'eval_steps_per_second': 3.102, 'epoch': 1.0}                                                                   
-{'loss': 0.6735, 'grad_norm': 2.141087293624878, 'learning_rate': 2.3936170212765957e-06, 'epoch': 1.43}                                                                     
-{'loss': 0.6649, 'grad_norm': 4.592581748962402, 'learning_rate': 2.074468085106383e-06, 'epoch': 1.9}                                                                       
-{'eval_loss': 0.6663622260093689, 'eval_accuracy': 0.6547619047619048, 'eval_f1': 0.6947368421052632, 'eval_precision': 0.6346153846153846, 'eval_recall': 0.7674418604651163, 'eval_runtime': 3.5546, 'eval_samples_per_second': 23.632, 'eval_steps_per_second': 3.095, 'epoch': 2.0}                                                                   
-{'loss': 0.651, 'grad_norm': 2.708678722381592, 'learning_rate': 1.7553191489361702e-06, 'epoch': 2.38}                                                                      
-{'loss': 0.6669, 'grad_norm': 3.5693187713623047, 'learning_rate': 1.4361702127659576e-06, 'epoch': 2.86}                                                                    
-{'eval_loss': 0.6586034297943115, 'eval_accuracy': 0.6547619047619048, 'eval_f1': 0.6947368421052632, 'eval_precision': 0.6346153846153846, 'eval_recall': 0.7674418604651163, 'eval_runtime': 3.5568, 'eval_samples_per_second': 23.617, 'eval_steps_per_second': 3.093, 'epoch': 3.0}                                                                   
-{'loss': 0.644, 'grad_norm': 3.8706870079040527, 'learning_rate': 1.1170212765957447e-06, 'epoch': 3.33}                                                                     
-{'loss': 0.6317, 'grad_norm': 2.106621265411377, 'learning_rate': 7.978723404255319e-07, 'epoch': 3.81}                                                                      
-{'eval_loss': 0.6507155299186707, 'eval_accuracy': 0.7261904761904762, 'eval_f1': 0.7294117647058823, 'eval_precision': 0.7380952380952381, 'eval_recall': 0.7209302325581395, 'eval_runtime': 3.5532, 'eval_samples_per_second': 23.641, 'eval_steps_per_second': 3.096, 'epoch': 4.0}                                                                   
-{'loss': 0.651, 'grad_norm': 5.014101505279541, 'learning_rate': 4.787234042553192e-07, 'epoch': 4.29}                                                                       
-{'loss': 0.6431, 'grad_norm': 4.286768913269043, 'learning_rate': 1.5957446808510638e-07, 'epoch': 4.76}                                                                     
-{'eval_loss': 0.6484043598175049, 'eval_accuracy': 0.7142857142857143, 'eval_f1': 0.7209302325581395, 'eval_precision': 0.7209302325581395, 'eval_recall': 0.7209302325581395, 'eval_runtime': 3.569, 'eval_samples_per_second': 23.536, 'eval_steps_per_second': 3.082, 'epoch': 5.0}                                                                    
-{'train_runtime': 272.1678, 'train_samples_per_second': 6.173, 'train_steps_per_second': 0.386, 'train_loss': 0.6596243608565557, 'epoch': 5.0}                              
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 105/105 [04:32<00:00,  2.59s/it]
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:03<00:00,  3.43it/s]
-Fold 5 metrics: {'eval_loss': 0.6507155299186707, 'eval_accuracy': 0.7261904761904762, 'eval_f1': 0.7294117647058823, 'eval_precision': 0.7380952380952381, 'eval_recall': 0.7209302325581395, 'eval_runtime': 3.5859, 'eval_samples_per_second': 23.425, 'eval_steps_per_second': 3.068, 'epoch': 5.0}
-
-===== CROSS-VALIDATION RESULTS =====
-Mean:
- eval_loss                   0.660294
-eval_accuracy               0.680952
-eval_f1                     0.726367
-eval_precision              0.658092
-eval_recall                 0.822481
-eval_runtime                3.641480
-eval_samples_per_second    23.097800
-eval_steps_per_second       3.024800
-epoch                       5.000000
-dtype: float64
-Std:
- eval_loss                  0.014148
-eval_accuracy              0.072120
-eval_f1                    0.037250
-eval_precision             0.078053
-eval_recall                0.060445
-eval_runtime               0.151402
-eval_samples_per_second    0.910214
-eval_steps_per_second      0.119272
-epoch                      0.000000
-dtype: float64
-
-===== TRAINING FINAL MODEL =====
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6885, 'grad_norm': 3.185253620147705, 'learning_rate': 2.307692307692308e-06, 'epoch': 0.38}                                                                      
-{'loss': 0.6995, 'grad_norm': 3.8397178649902344, 'learning_rate': 2.8205128205128207e-06, 'epoch': 0.75}                                                                    
-{'eval_loss': 0.6786680221557617, 'eval_accuracy': 0.5777777777777777, 'eval_f1': 0.6415094339622641, 'eval_precision': 0.5666666666666667, 'eval_recall': 0.7391304347826086, 'eval_runtime': 3.9421, 'eval_samples_per_second': 22.831, 'eval_steps_per_second': 3.044, 'epoch': 0.98}                                                                  
-{'loss': 0.6679, 'grad_norm': 3.301168441772461, 'learning_rate': 2.564102564102564e-06, 'epoch': 1.13}                                                                      
-{'loss': 0.6725, 'grad_norm': 2.8229527473449707, 'learning_rate': 2.307692307692308e-06, 'epoch': 1.51}                                                                     
-{'loss': 0.6699, 'grad_norm': 4.908132553100586, 'learning_rate': 2.0512820512820513e-06, 'epoch': 1.89}                                                                     
-{'eval_loss': 0.6606786847114563, 'eval_accuracy': 0.6777777777777778, 'eval_f1': 0.6947368421052632, 'eval_precision': 0.673469387755102, 'eval_recall': 0.717391304347826, 'eval_runtime': 6.3475, 'eval_samples_per_second': 14.179, 'eval_steps_per_second': 1.89, 'epoch': 2.0}                                                                      
-{'loss': 0.6502, 'grad_norm': 4.5313849449157715, 'learning_rate': 1.7948717948717948e-06, 'epoch': 2.26}                                                                    
-{'loss': 0.6608, 'grad_norm': 6.120581150054932, 'learning_rate': 1.5384615384615383e-06, 'epoch': 2.64}                                                                     
-{'eval_loss': 0.6499717235565186, 'eval_accuracy': 0.6888888888888889, 'eval_f1': 0.7021276595744681, 'eval_precision': 0.6875, 'eval_recall': 0.717391304347826, 'eval_runtime': 7.5491, 'eval_samples_per_second': 11.922, 'eval_steps_per_second': 1.59, 'epoch': 2.98}                                                                                
-{'loss': 0.6324, 'grad_norm': 6.830116271972656, 'learning_rate': 1.282051282051282e-06, 'epoch': 3.02}                                                                      
-{'loss': 0.6406, 'grad_norm': 4.884839057922363, 'learning_rate': 1.0256410256410257e-06, 'epoch': 3.4}                                                                      
-{'loss': 0.6375, 'grad_norm': 5.423312664031982, 'learning_rate': 7.692307692307691e-07, 'epoch': 3.77}                                                                                                                            
-{'eval_loss': 0.6430943012237549, 'eval_accuracy': 0.6888888888888889, 'eval_f1': 0.6818181818181818, 'eval_precision': 0.7142857142857143, 'eval_recall': 0.6521739130434783, 'eval_runtime': 13.7214, 'eval_samples_per_second': 6.559, 'eval_steps_per_second': 0.875, 'epoch': 4.0}                                                                                                                                                                               
-{'loss': 0.6152, 'grad_norm': 6.205811977386475, 'learning_rate': 5.128205128205128e-07, 'epoch': 4.15}                                                                                                                            
- 87%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████▍                | 113/130 [1:57:13<28:58, 102.28s/it]{'loss': 0.6206, 'grad_norm': 4.945920944213867, 'learning_rate': 2.564102564102564e-07, 'epoch': 4.53}                                                                  
-{'loss': 0.6162, 'grad_norm': 6.278889179229736, 'learning_rate': 0.0, 'epoch': 4.91}                                                                                    
-{'eval_loss': 0.6411712765693665, 'eval_accuracy': 0.6777777777777778, 'eval_f1': 0.6666666666666666, 'eval_precision': 0.7073170731707317, 'eval_recall': 0.6304347826086957, 'eval_runtime': 657.4883, 'eval_samples_per_second': 0.137, 'eval_steps_per_second': 0.018, 'epoch': 4.91}                                                         
-{'train_runtime': 14673.9699, 'train_samples_per_second': 0.143, 'train_steps_per_second': 0.009, 'train_loss': 0.6516698800600492, 'epoch': 4.91}                       
-100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 130/130 [4:04:33<00:00, 112.88s/it]
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 12/12 [00:06<00:00,  1.97it/s]
-
-Final validation metrics: {'eval_loss': 0.6499717235565186, 'eval_accuracy': 0.6888888888888889, 'eval_f1': 0.7021276595744681, 'eval_precision': 0.6875, 'eval_recall': 0.717391304347826, 'eval_runtime': 9.4863, 'eval_samples_per_second': 9.487, 'eval_steps_per_second': 1.265, 'epoch': 4.90566037735849}
-Training complete. Final model saved.
-
----
-
-mistake made, when adding CV, i did not know that CV replaces validation, meaning that the CV should have been done on both training + val set (510 samples) rather than just the training set (420 samples). and also this would make the final model training + validation redundant since the CV was already done to validate the model.
-CV gives us everythign that validation would - the stuff about early stopping, the best checkpoint, the performance metrics - but it also gives us a much more robust estimate of generalisation performance and stability across different data splits.
-
-this isnt a critical error since the results patterns and trends will still hold, its just slightly redundant and inefificent since we are doing this on a smaller datatset than we could have, and also doing another validation step when training the model.
-
-This is why when we retrain on the larger dataset (1200 samples) we no longer have a validation split we are no longer doing 3 fold split anymore, we will just do CV which means we only need a train set and test set, and we will do CV on the train set to get the best checkpoint and metrics etc, and then we will do a final training on the full train set and evaluate on the test set, which is a more standard and efficient workflow.
-
----
 
 #### 10.8 Global Interpretation
 
 Across all phases:
 
-- Best performance achieved early in the third training run (F1 = 0.75)
-- Subsequent tuning did not improve results  
-- Cross-validation confirms high variability and instability  
+- Best single-run performance observed in the third training run (F1 ≈ 0.75)  
+- Cross-validation (iteration 6) shows mean F1 ≈ 0.73 with variability (±0.04)  
+- Subsequent tuning did not improve mean performance  
 
-Evidence indicates:
+Key findings:
 
-- Model capacity is sufficient  
-- Input representation is adequate  
-- Training procedure is stable  
-- Simpler configuration performs best
+- Model capacity is sufficient for the task  
+- Input representation (full structured input) is appropriate  
+- Training is stable after hyperparameter adjustment  
+- Simpler configurations generalise as well as more complex ones 
 
 However:
 
-- Performance does not consistently generalise  
-- Results depend on specific data splits  
+- Performance varies across data splits (CV std ≈ 0.04–0.07)  
+- True generalisation performance lies within a range (~0.69–0.76 F1), not a single value  
+- Single validation results (e.g. 0.75 F1) slightly overestimate performance  
 
 ---
 
 #### 10.9 Final Conclusion and Decision
 
-All empirical evidence converges on a single constraint, the dataset size is the primary limiting factor for performance rather than model architecture or hyperparameter configuration.
+All empirical evidence indicates that **dataset size is the primary limiting factor**, rather than model architecture or training strategy.
 
 Supporting evidence:
 
-- No improvement from hyperparameter tuning  
-- Increased variance in cross-validation  
-- Degradation with added complexity  
-- Stable but limited performance ceiling (~F1 = 0.75)  
+- Cross-validation confirms a performance ceiling (~0.72–0.73 mean F1)  
+- No consistent improvement from additional tuning or complexity  
+- Increased variance with more complex configurations  
+- Stable but bounded performance across folds  
 
 Conclusion:
 
-- The model is not underpowered  
-- The training setup is not flawed  
-- The dataset is insufficient to support further learning  
+- Model is not underpowered  
+- Training pipeline is functionally correct  
+- Hyperparameter space has been sufficiently explored  
+- Performance is constrained by limited data 
 
-We must stop further training iterations and hyperparameter tuning:
+Further tuning and iteration on the current dataset is not justified:
 
-- No observed performance gains  
-- Increased risk of overfitting 
-- Does not improve generalisation
-- Diminishing returns from further adjustments 
-
+- No meaningful gains observed  
+- Risk of overfitting increases  
+- Generalisation does not improve  
+ 
 ---
 
 #### 10.10 Next Steps
 
 Increase the dataset size to enable further learning and performance improvements:
 
-- Expand annotated dataset from ~600 → 1200 samples  
-- Maintain the highest scoring configuration (third training run) for simplicity
+- Expand annotated dataset from 600 → 1200 samples  
+- Cross validate the expanded dataset with the final complex configuration and the baseline configuration (third run) to compare performance and stability
 - Retrain without introducing additional complexity (additional hyperparameters are not justified by current evidence)
 
-For future iterations training and scaling should stop when:
+Retrain using improved pipeline (CV-based training without redundant validation split):
 
-- F1-score plateaus despite additional data  
-- Cross-validation variance decreases  
-- Precision improves without recall collapse  
+- Split data into Train / Test only (1000/200)
+- Apply cross-validation on the full training set for:
+  - Model selection  
+  - Performance estimation  
+  - Checkpoint identification  
+- Train final model afterwards on full training data  
+- Single evaluation performed on held-out test set  
+
+This revised pipeline:
+
+- Maximises data utilisation  
+- Eliminates unnecessary validation duplication  
+- Produces a more reliable and efficient estimate of real-world performance  
 
 ---
 
@@ -2767,35 +2613,41 @@ The final training workflow is implemented in `train_validate_transformer.py`. T
 
 ### 1. Objective
 
-The objective of data expansion is to increase the size of the annotated dataset from 600 samples to 1200 samples, manualy annotate another 600 samples, resplit the updated dataset into training and validation and evaluation sets (80/10/10), and retrain the model using the best-performing configuration identified in the previous section.
+The objective of this phase is to expand the annotated dataset from 600 to 1200 samples by manually annotating an additional 600 examples, followed by re-splitting the dataset into training, validation, and test sets (80/10/10), and retraining the model using the best-performing configuration identified previously.
 
-The previous section identified through training that the bottleneck was not hyeprparaemter tuning but instead the dataset size. The model was able to learn meaningful patterns and achieve a reasonable F1-score, but performance was unstable and did not generalise well due to the limited number of training samples.
+- Prior experiments demonstrated that model performance was not limited by architecture or hyperparameter tuning, but by dataset size. 
+- While the model was able to learn meaningful patterns (F1 ≈ 0.70–0.75), performance remained unstable and sensitive to data splits, indicating insufficient training signal and limited generalisation.
 
-This section therefore focuses on expanding the dataset to provide more learning signal for the model, which is expected to lead to improved performance and stability, and be teh final iteration of the model training process before final evaluation on the test set.
+This phase addresses that constraint directly by increasing data volume, with the expectation that:
 
+- Model performance will improve due to greater exposure to task-relevant patterns  
+- Variance across splits will decrease, indicating improved stability  
+- Generalisation to unseen data will become more reliable  
 
+This represents the final data processing phase prior to definitive retraining and evaluation on the held-out test set.
 
-
+---
 
 ### 2. Dataset Expansion Rationale
 
-The decision to increase the dataset size from 600 to 1200 samples is based on empirical observations from model performance and variance analysis.
+The dataset is expanded from 600 to 1200 samples based on empirical findings from prior training and cross-validation following standard practice: incrementally scale dataset size and reassess performance after each increase.
 
-Cross-validation results demonstrated:
-	•	Moderate performance (F1 ≈ 0.75)
-	•	High variability across folds (±0.04)
+**Observed behaviour:**
+- Moderate performance (F1 ≈ 0.72–0.75)  
+- Variability across folds (±0.04 F1)
 
-This indicates the model is operating in a data-limited regime, where performance is constrained by insufficient training data rather than model capacity or optimisation.
+This indicates a data-limited regime, where performance is constrained by dataset size rather than model capacity or optimisation.
 
-In such settings, generalisation error and variance scale approximately with 1/\sqrt{N}, meaning that increasing dataset size reduces variance and improves stability.
+**Theoretical basis:**
+- Generalisation error and variance scale approximately with 1/sqrt(N)  
+- Increasing N improves stability and reduces performance variability  
 
-Doubling the dataset from 600 to 1200:
-	•	Reduces expected variance by ~29%
-	•	Provides sufficient additional signal to improve generalisation
-	•	Represents the smallest increase likely to produce a measurable effect
+**Expected impact of doubling data (600 → 1200):**
+- ~29% reduction in variance  
+- More robust pattern learning  
+- Improved consistency across data splits  
 
-This approach follows standard machine learning practice, where dataset size is increased incrementally and performance is reassessed after each scaling step.
-
+This is the smallest practical increase expected to yield measurable improvement while remaining feasible for manual annotation.
 
 ---
 
@@ -2803,51 +2655,118 @@ This approach follows standard machine learning practice, where dataset size is 
 
 #### 3.1 Objective
 
-- Generate a new, balanced, annotation-ready dataset of extracted clinical entities for transformer validation, while avoiding overlap with the previously sampled dataset.  
+- Generate a new, balanced, annotation-ready dataset of extracted clinical entities for transformer validation  
+- Ensure no overlap with the previously sampled dataset (based on defined deduplication criteria)  
 
 ---
 
 #### 3.2 Deduplication Strategy
 
-Sampling strategy is exactly the same as before, with the following key steps:
+The sampling procedure is identical to the original approach, with the addition of a pre-filtering step to remove previously sampled entities:
 
-1. Sample by `entity_type` to ensure class balance across SYMPTOM, INTERVENTION, and CLINICAL_CONDITION
-2. Concatenate the 3 entity types together to form a single dataset of 600 samples (200 per entity type)
-3. Randomly shuffle the dataset with a fixed seed for reproducibility
+1. Sample by `entity_type` to enforce class balance across:
+   - SYMPTOM  
+   - INTERVENTION  
+   - CLINICAL_CONDITION  
+2. Sample 200 entities per class (total = 600 samples)  
+3. Concatenate all classes into a single dataset  
+4. Shuffle using a fixed random seed for reproducibility  
 
-The critical new addition when sampling is the addition of filtering logic for deduplication. To prevent duplicates between the new sample and the previous 600 annotated entities:
+To prevent overlap with the original annotated dataset, a filtering step is applied before sampling:
 
-- We perform row-level deduplication based on the five key columns which the trasnformer uses: `sentence_text`, `entity_text`, `entity_type`, `concept`, `task`.
-- Tuple-based comparison is used for this purpose:
-  - The row-wise structure (`df_tuples`) is kept as a pandas Series of tuples, aligned with the DataFrame, to generate a boolean mask for filtering.
-  - Only the lookup structure (`existing_tuples`) is converted to a set for
-  efficient membership testing.
-- This approach ensures that any entity-context combination already present in the previous sample is excluded from the new dataset, regardless of row index or repeated occurrences.
+- Row-level deduplication is performed using the five key fields used by the transformer:
+  - `sentence_text`, `entity_text`, `entity_type`, `concept`, `task`
+- Tuple-based comparison is used:
+  - `df_tuples`: pandas Series of row-wise tuples (aligned with the full dataset)
+  - `existing_tuples`: set of tuples from the previously sampled dataset (used for efficient lookup)
+- Rows in the full dataset are excluded if their tuple representation exists in the previous sample.
 
-Due to the nature of this deduplication, it will deduplicate any rows which match those 5 columns, meaning that repeated entities in a sentence are treated as duplicates. this is becayse the trasnformer does not get access to the indexes anyways so essentially when training those are duplicates
+This ensures that:
 
-Therefore it will be expected that there will be >600 rows removed from the dataset since some of the entities in the 600 sampled entities will correspond to more than 1 row in the dataset based on the match to the 5 columns as we dont include the other columns such as the indexes for thr specific entity, so repeated entities at different index position in a senetnce will be essentially treated as the same
+- No entity-context combination (under these fields) is repeated across datasets  
+- Deduplication is independent of row index or dataset ordering  
 
-This is fine though as it still aligns with what the trasnformer sees, and also is technically better therefore, since it means that the new sampled entities will always be completely unique and not be considered duplicates by the trasnformer.
+There are important implications:
+
+- Deduplication is based on exact matches across the five columns only  
+- Entity span positions (e.g. character indices) are not included  
+- As a result:
+  - Multiple rows referring to the same entity within the same sentence are treated as duplicates  
+  - More than 600 rows may be removed during filtering, since a single annotated entity can correspond to multiple rows in the raw dataset  
+
+This is intentional and aligned with the model design:
+
+- The transformer does not use positional indices  
+- Therefore, such rows are functionally identical from the model’s perspective  
 
 ---
 
 #### 3.3 Sampling Workflow
 
-The logic is implemented in sample_additional_entities.py and follows these steps:
+The logic is implemented in `sample_additional_entities.py` and mirrors the original sampling pipeline, with the addition of a deduplication step prior to sampling.
 
+**Workflow:**
 
+1. **Load extraction candidates**
+   - Read JSONL file (`1 line = 1 entity`)
+   - Extract relevant fields:
+     - `note_id`, `section`, `concept`, `entity_text`, `entity_type`, `sentence_text`, `negated`, `task`, `confidence`
+
+2. **Convert to structured dataset**
+   - Flatten records into a pandas DataFrame (`df`)
+
+3. **Load existing annotated sample**
+   - Load previously sampled dataset (`annotation_sample_raw.csv`, n = 600)
+
+4. **Apply deduplication (new step)**
+   - Define deduplication columns:
+     - `sentence_text`, `entity_text`, `entity_type`, `concept`, `task`
+   - Convert both datasets into tuple representations:
+     - `df_tuples` (Series) for row-wise alignment
+     - `existing_tuples` (set) for efficient lookup
+   - Filter dataset:
+     - Remove rows present in `existing_tuples`
+     - Result: `df_filtered` contains only unseen samples
+
+5. **Perform stratified sampling**
+   - For each `entity_type`:
+     - SYMPTOM  
+     - INTERVENTION  
+     - CLINICAL_CONDITION  
+   - Sample `N_PER_CLASS = 200`
+   - Enforces balanced class distribution
+
+6. **Combine sampled data**
+   - Concatenate class-specific samples into a single dataset (n = 600)
+
+7. **Shuffle dataset**
+   - Apply random shuffle (`random_state = 42`)
+   - Reduces ordering bias for annotation
+
+8. **Prepare for annotation**
+   - Add empty column:
+     - `is_valid` (ground truth label placeholder)
+
+9. **Save outputs**
+   - `additional_annotation_sample_raw.csv` (always overwritten)
+   - `additional_annotation_sample_labeled.csv` (created only if not already present)
 
 ---
 
 #### 3.4 Sampling Results
 
-Terminal valdiation shows:
-- Loaded 47,487 total entities
-- retained 46,674 entities 
-- Final sample size of 600 entities
+Terminal output confirms successful execution of the sampling pipeline:
 
-This shows that the deduplication worked, where 813 rows were removed, which is expected as there is most likelymultiple appearneces of the entities from the rpevious sample in the full extraction
+- Loaded 47,487 total entities  
+- Retained 46,674 entities after deduplication  
+- Final sampled dataset size: 600 entities  
+
+A total of 813 rows were removed during deduplication:
+
+- This is expected, as multiple rows in the full extraction dataset can correspond to the same entity-context combination (based on the deduplication columns). 
+- These are treated as duplicates and removed prior to sampling.
+
+The final dataset therefore consists entirely of new, non-overlapping samples under the defined matching criteria.
 
 ---
 
@@ -2855,94 +2774,74 @@ This shows that the deduplication worked, where 813 rows were removed, which is 
 
 #### 4.1 Objective
 
-- Manually annotate the new dataset with binary labels (`is_valid`) indicating whether each entity is a valid extraction in its context, following the same annotation guidelines as before.
-- Validate the new annotated dataset to ensure label quality, class balance, and consistency with the previous dataset before retraining the model.
+- Manually annotate the new dataset with binary labels (`is_valid`) indicating whether each entity is a valid extraction in its context  
+- Apply the same annotation guidelines as the initial dataset to ensure consistency  
+- Validate the annotated dataset to confirm label quality, class balance, and structural integrity prior to retraining  
 
-#### 4.1 Annotation and Validation Strategy
+---
 
-Annotation Strategy remains consistent with the previous process:
+#### 4.2 Annotation and Validation Strategy
 
-- Each new entity is assigned an empty `is_valid` column for subsequent manual labeling.
-- The same annotation event-based and status-based guidelines per entity type are applied to ensure consistency in labeling criteria across both datasets.
+**Annotation:**
+- Each entity is manually labeled using the `is_valid` field  
+- The same event-based and status-based guidelines are applied across all entity types  
+- Ensures consistency with the original 600-sample dataset  
 
-Validation of the new annotated dataset will be the same as before, printing metrics to make sure sampling, annotation labels, and class balance are all correct before proceeding to model training.
+**Validation:**
+- The same validation logic is reused (`validate_additional_manual_annotations.py`)  
+- Checks include:
+  - Missing values  
+  - Label validity (`True/False`)  
+  - Class balance (`is_valid` distribution)  
+  - Task distribution (200 per class)  
+  - Task vs label breakdown  
+
+This ensures the new dataset is structurally and statistically consistent before merging and retraining  
 
 ---
 
 #### 4.3 Validation Results
 
-Exact same logic as before but with new dataset, validate_additional_manual_annotations.py
+Exact same logic as before but with new dataset, implemented via `validate_additional_manual_annotations.py`
 
-=== BASIC INFO ===
-Total rows: 600
-Index(['note_id', 'section', 'concept', 'entity_text', 'entity_type',
-       'sentence_text', 'negated', 'task', 'confidence', 'is_valid'],
-      dtype='object')
+Validation analysis confirms:
 
+- All rows and columns present 
+- No missing values apart from `negated` (400) which is expected and consistent with the entity types
+- Label integrity confirmed: all `is_valid` values are `True` or `False`, no missing annotations
+- Class distribution balanced: True (294) vs False (306)
+- Task distirbution balanced: 200 per class (SYMPTOM, INTERVENTION, CLINICAL_CONDITION)
+- Task vs label breakdown shows no significant imbalance within classes:
+  - Both `True` and `False` labels well represented across all tasks. 
+  - Variation across tasks is expected due to underlying entity types and annotation guidelines.
 
-=== MISSING VALUES ===
-note_id            0
-section            0
-concept            0
-entity_text        0
-entity_type        0
-sentence_text      0
-negated          400
-task               0
-confidence         0
-is_valid           0
-dtype: int64
+| Task                         | False | True |
+|------------------------------|-------|------|
+| clinical_condition_active    | 117   | 83   |
+| intervention_performed       | 81    | 119  |
+| symptom_presence             | 108   | 92   |
 
-=== CRITICAL FIELD CHECKS ===
-Missing task: 0
-Missing sentence_text: 0
-Missing is_valid: 0
+Conclusion:
 
-=== UNIQUE is_valid VALUES ===
-[ True False]
+- Dataset passes all validation checks  
+- Labels are valid, complete, and consistent  
+- Class and task distributions are appropriate  
+- No data quality issues identified  
 
-=== is_valid DISTRIBUTION ===
-is_valid
-False    306
-True     294
-Name: count, dtype: int64
-
-=== INVALID LABEL ROWS ===
-Number of invalid label rows: 0
-
-=== TASK DISTRIBUTION ===
-task
-symptom_presence             200
-clinical_condition_active    200
-intervention_performed       200
-Name: count, dtype: int64
-
-=== CHECK TASK SIZE (expect 200 each) ===
-symptom_presence: 200
-clinical_condition_active: 200
-intervention_performed: 200
-
-=== TASK vs is_valid ===
-is_valid                   False  True 
-task                                   
-clinical_condition_active    117     83
-intervention_performed        81    119
-symptom_presence             108     92
-
-=== VALIDATION COMPLETE ===
-Review warnings above before proceeding to stratified split.
+The dataset is suitable for merging with the original annotations and proceeding to model retraining  
 
 ---
 
 ### 5. Stratified Resplitting
 
----
-
 #### 5.1 Objective
 
-- Resplit the combined dataset of 1200 annotated entities into training and evaluation sets with a 10000/200 split, ensuring stratification by `entity_type` to maintain class balance across all sets.
-- This new resplitting is necessary to incorporate the new annotated entities into the training process while allowing for cross validation and final evaluation set for unbiased performance assessment.
-- This is the final stage before we retrain the model using the best-performing configuration identified in the previous section.
+- Resplit the combined dataset of 1200 annotated entities into Training / Test sets (85/15)
+- This resplitting incorporates the newly annotated data into training while reserving a held-out test set for final, unbiased evaluation  
+- Cross-validation will be performed on the training set only, replacing the previous validation split  
+- This marks the final stage before retraining the model using the two configurations identified in earlier iterations  
+
+---
 
 #### 5.2 Dataset Combination
 
