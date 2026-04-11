@@ -2494,7 +2494,7 @@ Increase the dataset size to enable further learning and performance improvement
 
 Retrain using improved pipeline (CV-based training without redundant validation split):
 
-- Split data into Train / Test only (1000/200)
+- Split data into Train / Test only
 - Apply cross-validation on the full training set for:
   - Model selection  
   - Performance estimation  
@@ -2836,559 +2836,793 @@ The dataset is suitable for merging with the original annotations and proceeding
 
 #### 5.1 Objective
 
-- Resplit the combined dataset of 1200 annotated entities into Training / Test sets (85/15)
-- This resplitting incorporates the newly annotated data into training while reserving a held-out test set for final, unbiased evaluation  
-- Cross-validation will be performed on the training set only, replacing the previous validation split  
-- This marks the final stage before retraining the model using the two configurations identified in earlier iterations  
+- Combine both annotated datasets (600 + 600) into a single dataset of 1200 samples  
+- Perform a stratified split into Training / Test sets (85/15)  
+- Ensure the test set remains fully unseen for final evaluation  
+- Replace the previous validation split with cross-validation on the training set  
 
 ---
 
-#### 5.2 Dataset Combination
+#### 5.2 Splitting Strategy
 
+The two annotated datasets are concatenated to form a unified dataset of 1200 samples.
 
-#### 5.2 Resplitting Workflow
+A stratification key is defined as: `task` + `is_valid`
 
+This ensures:
+- Class balance (`is_valid`) is preserved  
+- Task distribution is preserved  
+- Label balance is maintained within each task  
+
+A single stratified split is then performed:
+- 85% Training (1020 samples)  
+- 15% Test (180 samples)  
+
+This is a standard and efficient setup where:
+- Cross-validation is performed on the training set  
+- The test set is reserved for final, unbiased evaluation  
+
+---
+
+#### 5.3 Workflow Implementation
+
+The resplitting logic is implemented in `stratified_resplit.py`:
+
+1. Load both annotated datasets (original + additional)  
+2. Concatenate into a single DataFrame (1200 rows)  
+3. Create stratification key (`task + is_valid`)  
+4. Perform stratified split (85/15) using `train_test_split`  
+5. Drop helper column (`stratify_key`)  
+6. Reset indices for clean datasets  
+7. Verify distributions (task, label, task vs label)  
+8. Save outputs to `train.csv` and `test.csv`  
 
 ---
 
 #### 5.3 Resplitting Results
 
-Loaded first dataset with 600 rows
-Loaded second dataset with 600 rows
-Combined dataset has 1200 rows
+Dataset sizes:
 
-=== SPLIT SIZES ===
-Train: 1020
-Eval: 180
+- Total = 600 + 600 = 1200 samples
+- Training: 1020 samples
+- Test: 180 samples
 
-=== TRAIN DISTRIBUTION ===
+Train distribution:
 
-Task distribution:
-task
-clinical_condition_active    340
-symptom_presence             340
-intervention_performed       340
-Name: count, dtype: int64
+- Task distribution balanced: 340 per class (SYMPTOM, INTERVENTION, CLINICAL_CONDITION)
+- Label distribution balanced: True (510) vs False (510)
 
-is_valid distribution:
-is_valid
-True     510
-False    510
-Name: count, dtype: int64
+Test distribution:
 
-Task vs is_valid:
-is_valid                   False  True 
-task                                   
-clinical_condition_active    203    137
-intervention_performed       129    211
-symptom_presence             178    162
+- Task distribution balanced: 60 per class (SYMPTOM, INTERVENTION, CLINICAL_CONDITION)
+- Label distribution balanced: True (89) vs False (91)
 
-=== EVAL DISTRIBUTION ===
+Task vs label breakdown for train and test sets confirms:
 
-Task distribution:
-task
-symptom_presence             60
-intervention_performed       60
-clinical_condition_active    60
-Name: count, dtype: int64
+- No significant imbalance within classes.
+- Both `True` and `False` labels well represented across all tasks. 
+- Variation across tasks is expected due to underlying entity types.
 
-is_valid distribution:
-is_valid
-False    91
-True     89
-Name: count, dtype: int64
+Conclusion:
 
-Task vs is_valid:
-is_valid                   False  True 
-task                                   
-clinical_condition_active     36     24
-intervention_performed        23     37
-symptom_presence              32     28
+- Perfect task balance is maintained across both splits  
+- Label distribution is closely preserved (near 50/50)  
+- Task–label relationships remain consistent between train and test 
+
+This confirms that the stratified split is correct and suitable for downstream cross-validation and final evaluation.
 
 ----
 
-## Model Retraining
+## Model Cross-Validation and Model Selection
 
-===== RUNNING CROSS-VALIDATION =====
+### 1. Objective
 
+- Evaluate two candidate hyperparameter configurations derived from previous iterations:
+  - **Run 3 (stable baseline)**
+  - **Run 6 (advanced tuning)**
+- Use stratified 5-fold cross-validation on the full training set (1020 samples) to:
+  - Compare performance (primarily F1)
+  - Assess stability (variance across folds)
+- Select the best-performing configuration in order to retrain a final model on the full training set
 
-########## config_stable ##########
+This stage completes the model development phase by providing a robust performance estimate and comparison, before final training and evaluation on the held-out test set.
 
-=== Fold 1 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6676.37 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7457.52 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.7104, 'grad_norm': 2.9828312397003174, 'learning_rate': 4.836601307189543e-06, 'epoch': 0.1}                                                                                                            
-{'loss': 0.6838, 'grad_norm': 4.797733306884766, 'learning_rate': 4.673202614379085e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.646, 'grad_norm': 7.429051399230957, 'learning_rate': 4.509803921568628e-06, 'epoch': 0.29}                                                                                                             
-{'loss': 0.6696, 'grad_norm': 4.405584335327148, 'learning_rate': 4.34640522875817e-06, 'epoch': 0.39}                                                                                                             
-{'loss': 0.6824, 'grad_norm': 7.632701873779297, 'learning_rate': 4.183006535947713e-06, 'epoch': 0.49}                                                                                                            
-{'loss': 0.7011, 'grad_norm': 6.320907115936279, 'learning_rate': 4.019607843137255e-06, 'epoch': 0.59}                                                                                                            
-{'loss': 0.6349, 'grad_norm': 7.496801376342773, 'learning_rate': 3.856209150326798e-06, 'epoch': 0.69}                                                                                                            
-{'loss': 0.682, 'grad_norm': 7.07696008682251, 'learning_rate': 3.6928104575163404e-06, 'epoch': 0.78}                                                                                                             
-{'loss': 0.664, 'grad_norm': 5.306292533874512, 'learning_rate': 3.529411764705883e-06, 'epoch': 0.88}                                                                                                             
-{'loss': 0.6483, 'grad_norm': 5.939138889312744, 'learning_rate': 3.3660130718954253e-06, 'epoch': 0.98}                                                                                                           
-{'eval_loss': 0.6264452338218689, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.6739130434782609, 'eval_precision': 0.7560975609756098, 'eval_recall': 0.6078431372549019, 'eval_runtime': 8.4385, 'eval_samples_per_second': 24.175, 'eval_steps_per_second': 3.081, 'epoch': 1.0}                                                                                                                                               
-{'loss': 0.6423, 'grad_norm': 6.189306735992432, 'learning_rate': 3.2026143790849674e-06, 'epoch': 1.08}                                                                                                           
-{'loss': 0.6163, 'grad_norm': 5.869161605834961, 'learning_rate': 3.03921568627451e-06, 'epoch': 1.18}                                                                                                             
-{'loss': 0.6285, 'grad_norm': 5.808520317077637, 'learning_rate': 2.8758169934640523e-06, 'epoch': 1.27}                                                                                                           
-{'loss': 0.6235, 'grad_norm': 7.516668319702148, 'learning_rate': 2.7124183006535947e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6209, 'grad_norm': 5.066751480102539, 'learning_rate': 2.549019607843137e-06, 'epoch': 1.47}                                                                                                            
-{'loss': 0.6145, 'grad_norm': 5.928969860076904, 'learning_rate': 2.38562091503268e-06, 'epoch': 1.57}                                                                                                             
-{'loss': 0.582, 'grad_norm': 7.156850337982178, 'learning_rate': 2.222222222222222e-06, 'epoch': 1.67}                                                                                                             
-{'loss': 0.5838, 'grad_norm': 8.438311576843262, 'learning_rate': 2.058823529411765e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.5698, 'grad_norm': 4.204545497894287, 'learning_rate': 1.8954248366013072e-06, 'epoch': 1.86}                                                                                                           
-{'loss': 0.6134, 'grad_norm': 5.319906711578369, 'learning_rate': 1.7320261437908499e-06, 'epoch': 1.96}                                                                                                           
-{'eval_loss': 0.5850840210914612, 'eval_accuracy': 0.7303921568627451, 'eval_f1': 0.7236180904522613, 'eval_precision': 0.7422680412371134, 'eval_recall': 0.7058823529411765, 'eval_runtime': 8.1722, 'eval_samples_per_second': 24.963, 'eval_steps_per_second': 3.182, 'epoch': 2.0}                                                                                                                                               
-{'loss': 0.5921, 'grad_norm': 6.457675933837891, 'learning_rate': 1.5686274509803923e-06, 'epoch': 2.06}                                                                                                           
-{'loss': 0.5357, 'grad_norm': 4.740350246429443, 'learning_rate': 1.4052287581699348e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.6118, 'grad_norm': 3.581923484802246, 'learning_rate': 1.2418300653594772e-06, 'epoch': 2.25}                                                                                                           
-{'loss': 0.564, 'grad_norm': 10.301691055297852, 'learning_rate': 1.0784313725490197e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.5807, 'grad_norm': 5.149842262268066, 'learning_rate': 9.150326797385621e-07, 'epoch': 2.45}                                                                                                            
-{'loss': 0.5779, 'grad_norm': 6.3348212242126465, 'learning_rate': 7.516339869281046e-07, 'epoch': 2.55}                                                                                                           
-{'loss': 0.5901, 'grad_norm': 6.308790683746338, 'learning_rate': 5.882352941176471e-07, 'epoch': 2.65}                                                                                                            
-{'loss': 0.5259, 'grad_norm': 4.945024490356445, 'learning_rate': 4.248366013071896e-07, 'epoch': 2.75}                                                                                                            
-{'loss': 0.5896, 'grad_norm': 5.726438999176025, 'learning_rate': 2.6143790849673207e-07, 'epoch': 2.84}                                                                                                           
-{'loss': 0.5402, 'grad_norm': 9.189987182617188, 'learning_rate': 9.803921568627452e-08, 'epoch': 2.94}                                                                                                            
-{'eval_loss': 0.5650818943977356, 'eval_accuracy': 0.7352941176470589, 'eval_f1': 0.7244897959183674, 'eval_precision': 0.7553191489361702, 'eval_recall': 0.696078431372549, 'eval_runtime': 8.1803, 'eval_samples_per_second': 24.938, 'eval_steps_per_second': 3.178, 'epoch': 3.0}                                                                                                                                                
-{'train_runtime': 371.5997, 'train_samples_per_second': 6.588, 'train_steps_per_second': 0.823, 'train_loss': 0.6175991865544538, 'epoch': 3.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 306/306 [06:11<00:00,  1.21s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.32it/s]
-Fold 1 metrics: {'eval_loss': 0.5650818943977356, 'eval_accuracy': 0.7352941176470589, 'eval_f1': 0.7244897959183674, 'eval_precision': 0.7553191489361702, 'eval_recall': 0.696078431372549, 'eval_runtime': 8.162, 'eval_samples_per_second': 24.994, 'eval_steps_per_second': 3.186, 'epoch': 3.0}
+---
 
-=== Fold 2 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6164.87 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7160.69 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.71, 'grad_norm': 3.4598779678344727, 'learning_rate': 4.836601307189543e-06, 'epoch': 0.1}                                                                                                              
-{'loss': 0.7214, 'grad_norm': 6.133597373962402, 'learning_rate': 4.673202614379085e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.7096, 'grad_norm': 8.535781860351562, 'learning_rate': 4.509803921568628e-06, 'epoch': 0.29}                                                                                                            
-{'loss': 0.6767, 'grad_norm': 5.241737365722656, 'learning_rate': 4.34640522875817e-06, 'epoch': 0.39}                                                                                                             
-{'loss': 0.6493, 'grad_norm': 5.054990291595459, 'learning_rate': 4.183006535947713e-06, 'epoch': 0.49}                                                                                                            
-{'loss': 0.6772, 'grad_norm': 3.2068755626678467, 'learning_rate': 4.019607843137255e-06, 'epoch': 0.59}                                                                                                           
-{'loss': 0.6623, 'grad_norm': 6.402395248413086, 'learning_rate': 3.856209150326798e-06, 'epoch': 0.69}                                                                                                            
-{'loss': 0.6641, 'grad_norm': 6.143208980560303, 'learning_rate': 3.6928104575163404e-06, 'epoch': 0.78}                                                                                                           
-{'loss': 0.6586, 'grad_norm': 3.8530826568603516, 'learning_rate': 3.529411764705883e-06, 'epoch': 0.88}                                                                                                           
-{'loss': 0.6592, 'grad_norm': 5.458342552185059, 'learning_rate': 3.3660130718954253e-06, 'epoch': 0.98}                                                                                                           
-{'eval_loss': 0.658694863319397, 'eval_accuracy': 0.6372549019607843, 'eval_f1': 0.6262626262626263, 'eval_precision': 0.6458333333333334, 'eval_recall': 0.6078431372549019, 'eval_runtime': 8.1789, 'eval_samples_per_second': 24.942, 'eval_steps_per_second': 3.179, 'epoch': 1.0}                                                                                                                                                
-{'loss': 0.6357, 'grad_norm': 4.724815368652344, 'learning_rate': 3.2026143790849674e-06, 'epoch': 1.08}                                                                                                           
-{'loss': 0.6457, 'grad_norm': 7.950567722320557, 'learning_rate': 3.03921568627451e-06, 'epoch': 1.18}                                                                                                             
-{'loss': 0.599, 'grad_norm': 7.461246013641357, 'learning_rate': 2.8758169934640523e-06, 'epoch': 1.27}                                                                                                            
-{'loss': 0.6064, 'grad_norm': 4.712815761566162, 'learning_rate': 2.7124183006535947e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6117, 'grad_norm': 6.822486400604248, 'learning_rate': 2.549019607843137e-06, 'epoch': 1.47}                                                                                                            
-{'loss': 0.5957, 'grad_norm': 4.063061237335205, 'learning_rate': 2.38562091503268e-06, 'epoch': 1.57}                                                                                                             
-{'loss': 0.6075, 'grad_norm': 5.335022926330566, 'learning_rate': 2.222222222222222e-06, 'epoch': 1.67}                                                                                                            
-{'loss': 0.6106, 'grad_norm': 7.241730690002441, 'learning_rate': 2.058823529411765e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.6048, 'grad_norm': 3.4495575428009033, 'learning_rate': 1.8954248366013072e-06, 'epoch': 1.86}                                                                                                          
-{'loss': 0.5829, 'grad_norm': 6.568054676055908, 'learning_rate': 1.7320261437908499e-06, 'epoch': 1.96}                                                                                                           
-{'eval_loss': 0.6436905860900879, 'eval_accuracy': 0.6274509803921569, 'eval_f1': 0.6415094339622641, 'eval_precision': 0.6181818181818182, 'eval_recall': 0.6666666666666666, 'eval_runtime': 8.2187, 'eval_samples_per_second': 24.822, 'eval_steps_per_second': 3.164, 'epoch': 2.0}                                                                                                                                               
-{'loss': 0.6029, 'grad_norm': 10.449905395507812, 'learning_rate': 1.5686274509803923e-06, 'epoch': 2.06}                                                                                                          
-{'loss': 0.5647, 'grad_norm': 8.356180191040039, 'learning_rate': 1.4052287581699348e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.5941, 'grad_norm': 4.081063747406006, 'learning_rate': 1.2418300653594772e-06, 'epoch': 2.25}                                                                                                           
-{'loss': 0.5604, 'grad_norm': 8.927538871765137, 'learning_rate': 1.0784313725490197e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.5924, 'grad_norm': 4.191283702850342, 'learning_rate': 9.150326797385621e-07, 'epoch': 2.45}                                                                                                            
-{'loss': 0.5774, 'grad_norm': 10.436814308166504, 'learning_rate': 7.516339869281046e-07, 'epoch': 2.55}                                                                                                           
-{'loss': 0.5829, 'grad_norm': 3.5657529830932617, 'learning_rate': 5.882352941176471e-07, 'epoch': 2.65}                                                                                                           
-{'loss': 0.6015, 'grad_norm': 4.568387985229492, 'learning_rate': 4.248366013071896e-07, 'epoch': 2.75}                                                                                                            
-{'loss': 0.5634, 'grad_norm': 9.550910949707031, 'learning_rate': 2.6143790849673207e-07, 'epoch': 2.84}                                                                                                           
-{'loss': 0.5789, 'grad_norm': 5.297276020050049, 'learning_rate': 9.803921568627452e-08, 'epoch': 2.94}                                                                                                            
-{'eval_loss': 0.6346308588981628, 'eval_accuracy': 0.6519607843137255, 'eval_f1': 0.6536585365853659, 'eval_precision': 0.6504854368932039, 'eval_recall': 0.6568627450980392, 'eval_runtime': 8.1908, 'eval_samples_per_second': 24.906, 'eval_steps_per_second': 3.174, 'epoch': 3.0}                                                                                                                                               
-{'train_runtime': 566.9476, 'train_samples_per_second': 4.318, 'train_steps_per_second': 0.54, 'train_loss': 0.6223967550626768, 'epoch': 3.0}                                                                     
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 306/306 [09:26<00:00,  1.85s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 2 metrics: {'eval_loss': 0.6346308588981628, 'eval_accuracy': 0.6519607843137255, 'eval_f1': 0.6536585365853659, 'eval_precision': 0.6504854368932039, 'eval_recall': 0.6568627450980392, 'eval_runtime': 8.1767, 'eval_samples_per_second': 24.949, 'eval_steps_per_second': 3.18, 'epoch': 3.0}
+### 2. Updated Model Input Representation
 
-=== Fold 3 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6554.74 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7943.98 examples/s]
-'(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')), '(Request ID: edd8ee63-e878-4df7-8efc-f4bdd0baaa6d)')' thrown while requesting HEAD https://huggingface.co/emilyalsentzer/Bio_ClinicalBERT/resolve/main/config.json
-Retrying in 1s [Retry 1/5].
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.7237, 'grad_norm': 7.450933933258057, 'learning_rate': 4.836601307189543e-06, 'epoch': 0.1}                                                                                                             
-{'loss': 0.7031, 'grad_norm': 5.343350410461426, 'learning_rate': 4.673202614379085e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.6946, 'grad_norm': 3.964149236679077, 'learning_rate': 4.509803921568628e-06, 'epoch': 0.29}                                                                                                            
-{'loss': 0.6831, 'grad_norm': 3.719081401824951, 'learning_rate': 4.34640522875817e-06, 'epoch': 0.39}                                                                                                             
-{'loss': 0.6848, 'grad_norm': 4.116750717163086, 'learning_rate': 4.183006535947713e-06, 'epoch': 0.49}                                                                                                            
-{'loss': 0.6524, 'grad_norm': 11.370431900024414, 'learning_rate': 4.019607843137255e-06, 'epoch': 0.59}                                                                                                           
-{'loss': 0.6264, 'grad_norm': 4.444675922393799, 'learning_rate': 3.856209150326798e-06, 'epoch': 0.69}                                                                                                            
-{'loss': 0.6349, 'grad_norm': 4.258211612701416, 'learning_rate': 3.6928104575163404e-06, 'epoch': 0.78}                                                                                                           
-{'loss': 0.6495, 'grad_norm': 6.4983229637146, 'learning_rate': 3.529411764705883e-06, 'epoch': 0.88}                                                                                                              
-{'loss': 0.6234, 'grad_norm': 5.4850172996521, 'learning_rate': 3.3660130718954253e-06, 'epoch': 0.98}                                                                                                             
-{'eval_loss': 0.6126949191093445, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.7087378640776699, 'eval_precision': 0.7019230769230769, 'eval_recall': 0.7156862745098039, 'eval_runtime': 8.4873, 'eval_samples_per_second': 24.036, 'eval_steps_per_second': 3.063, 'epoch': 1.0}                                                                                                                                               
-{'loss': 0.624, 'grad_norm': 4.384472846984863, 'learning_rate': 3.2026143790849674e-06, 'epoch': 1.08}                                                                                                            
-{'loss': 0.6123, 'grad_norm': 4.464570045471191, 'learning_rate': 3.03921568627451e-06, 'epoch': 1.18}                                                                                                             
-{'loss': 0.5764, 'grad_norm': 7.515692234039307, 'learning_rate': 2.8758169934640523e-06, 'epoch': 1.27}                                                                                                           
-{'loss': 0.6188, 'grad_norm': 5.103363513946533, 'learning_rate': 2.7124183006535947e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6211, 'grad_norm': 5.6629509925842285, 'learning_rate': 2.549019607843137e-06, 'epoch': 1.47}                                                                                                           
-{'loss': 0.6023, 'grad_norm': 6.067633628845215, 'learning_rate': 2.38562091503268e-06, 'epoch': 1.57}                                                                                                             
-{'loss': 0.5696, 'grad_norm': 5.184009552001953, 'learning_rate': 2.222222222222222e-06, 'epoch': 1.67}                                                                                                            
-{'loss': 0.6295, 'grad_norm': 4.344557762145996, 'learning_rate': 2.058823529411765e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.6016, 'grad_norm': 5.081483840942383, 'learning_rate': 1.8954248366013072e-06, 'epoch': 1.86}                                                                                                           
-{'loss': 0.5664, 'grad_norm': 4.813072681427002, 'learning_rate': 1.7320261437908499e-06, 'epoch': 1.96}                                                                                                           
-{'eval_loss': 0.5768228769302368, 'eval_accuracy': 0.7009803921568627, 'eval_f1': 0.7053140096618358, 'eval_precision': 0.6952380952380952, 'eval_recall': 0.7156862745098039, 'eval_runtime': 8.1798, 'eval_samples_per_second': 24.939, 'eval_steps_per_second': 3.179, 'epoch': 2.0}                                                                                                                                               
-{'loss': 0.6048, 'grad_norm': 5.178508281707764, 'learning_rate': 1.5686274509803923e-06, 'epoch': 2.06}                                                                                                           
-{'loss': 0.594, 'grad_norm': 8.598237037658691, 'learning_rate': 1.4052287581699348e-06, 'epoch': 2.16}                                                                                                            
-{'loss': 0.5681, 'grad_norm': 4.172880172729492, 'learning_rate': 1.2418300653594772e-06, 'epoch': 2.25}                                                                                                           
-{'loss': 0.5344, 'grad_norm': 7.3776535987854, 'learning_rate': 1.0784313725490197e-06, 'epoch': 2.35}                                                                                                             
-{'loss': 0.5999, 'grad_norm': 5.274287700653076, 'learning_rate': 9.150326797385621e-07, 'epoch': 2.45}                                                                                                            
-{'loss': 0.5769, 'grad_norm': 9.03189754486084, 'learning_rate': 7.516339869281046e-07, 'epoch': 2.55}                                                                                                             
-{'loss': 0.5823, 'grad_norm': 12.922530174255371, 'learning_rate': 5.882352941176471e-07, 'epoch': 2.65}                                                                                                           
-{'loss': 0.5805, 'grad_norm': 3.3748466968536377, 'learning_rate': 4.248366013071896e-07, 'epoch': 2.75}                                                                                                           
-{'loss': 0.5826, 'grad_norm': 4.418302059173584, 'learning_rate': 2.6143790849673207e-07, 'epoch': 2.84}                                                                                                           
-{'loss': 0.5887, 'grad_norm': 5.625654220581055, 'learning_rate': 9.803921568627452e-08, 'epoch': 2.94}                                                                                                            
-{'eval_loss': 0.5694177746772766, 'eval_accuracy': 0.7156862745098039, 'eval_f1': 0.7156862745098039, 'eval_precision': 0.7156862745098039, 'eval_recall': 0.7156862745098039, 'eval_runtime': 8.187, 'eval_samples_per_second': 24.917, 'eval_steps_per_second': 3.176, 'epoch': 3.0}                                                                                                                                                
-{'train_runtime': 372.246, 'train_samples_per_second': 6.576, 'train_steps_per_second': 0.822, 'train_loss': 0.6158494544185065, 'epoch': 3.0}                                                                     
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 306/306 [06:12<00:00,  1.22s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 3 metrics: {'eval_loss': 0.5694177746772766, 'eval_accuracy': 0.7156862745098039, 'eval_f1': 0.7156862745098039, 'eval_precision': 0.7156862745098039, 'eval_recall': 0.7156862745098039, 'eval_runtime': 8.1709, 'eval_samples_per_second': 24.967, 'eval_steps_per_second': 3.182, 'epoch': 3.0}
+The model input was extended to include the `section` field alongside the existing fields:
 
-=== Fold 4 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6267.62 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7699.29 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.7939, 'grad_norm': 4.448887825012207, 'learning_rate': 4.836601307189543e-06, 'epoch': 0.1}                                                                                                             
-{'loss': 0.6725, 'grad_norm': 5.915727138519287, 'learning_rate': 4.673202614379085e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.6991, 'grad_norm': 3.144515037536621, 'learning_rate': 4.509803921568628e-06, 'epoch': 0.29}                                                                                                            
-{'loss': 0.6716, 'grad_norm': 3.372199773788452, 'learning_rate': 4.34640522875817e-06, 'epoch': 0.39}                                                                                                             
-{'loss': 0.6689, 'grad_norm': 4.342011451721191, 'learning_rate': 4.183006535947713e-06, 'epoch': 0.49}                                                                                                            
-{'loss': 0.6309, 'grad_norm': 4.792886257171631, 'learning_rate': 4.019607843137255e-06, 'epoch': 0.59}                                                                                                            
-{'loss': 0.6468, 'grad_norm': 4.200644016265869, 'learning_rate': 3.856209150326798e-06, 'epoch': 0.69}                                                                                                            
-{'loss': 0.6374, 'grad_norm': 3.846693277359009, 'learning_rate': 3.6928104575163404e-06, 'epoch': 0.78}                                                                                                           
-{'loss': 0.6764, 'grad_norm': 3.4830870628356934, 'learning_rate': 3.529411764705883e-06, 'epoch': 0.88}                                                                                                           
-{'loss': 0.6164, 'grad_norm': 4.598002910614014, 'learning_rate': 3.3660130718954253e-06, 'epoch': 0.98}                                                                                                           
-{'eval_loss': 0.6229746341705322, 'eval_accuracy': 0.7205882352941176, 'eval_f1': 0.7046632124352331, 'eval_precision': 0.7472527472527473, 'eval_recall': 0.6666666666666666, 'eval_runtime': 8.631, 'eval_samples_per_second': 23.636, 'eval_steps_per_second': 3.012, 'epoch': 1.0}                                                                                                                                                
-{'loss': 0.6327, 'grad_norm': 7.845837593078613, 'learning_rate': 3.2026143790849674e-06, 'epoch': 1.08}                                                                                                           
-{'loss': 0.6264, 'grad_norm': 3.66449236869812, 'learning_rate': 3.03921568627451e-06, 'epoch': 1.18}                                                                                                              
-{'loss': 0.5997, 'grad_norm': 5.8965044021606445, 'learning_rate': 2.8758169934640523e-06, 'epoch': 1.27}                                                                                                          
-{'loss': 0.5903, 'grad_norm': 4.240746974945068, 'learning_rate': 2.7124183006535947e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.5991, 'grad_norm': 8.780424118041992, 'learning_rate': 2.549019607843137e-06, 'epoch': 1.47}                                                                                                            
-{'loss': 0.5901, 'grad_norm': 7.313333034515381, 'learning_rate': 2.38562091503268e-06, 'epoch': 1.57}                                                                                                             
-{'loss': 0.6164, 'grad_norm': 4.517190933227539, 'learning_rate': 2.222222222222222e-06, 'epoch': 1.67}                                                                                                            
-{'loss': 0.6229, 'grad_norm': 4.648843765258789, 'learning_rate': 2.058823529411765e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.5456, 'grad_norm': 6.032140254974365, 'learning_rate': 1.8954248366013072e-06, 'epoch': 1.86}                                                                                                           
-{'loss': 0.6176, 'grad_norm': 3.89502215385437, 'learning_rate': 1.7320261437908499e-06, 'epoch': 1.96}                                                                                                            
-{'eval_loss': 0.5888649821281433, 'eval_accuracy': 0.7205882352941176, 'eval_f1': 0.7219512195121951, 'eval_precision': 0.7184466019417476, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.4308, 'eval_samples_per_second': 24.197, 'eval_steps_per_second': 3.084, 'epoch': 2.0}                                                                                                                                               
-{'loss': 0.6031, 'grad_norm': 6.36028528213501, 'learning_rate': 1.5686274509803923e-06, 'epoch': 2.06}                                                                                                            
-{'loss': 0.5465, 'grad_norm': 5.0244140625, 'learning_rate': 1.4052287581699348e-06, 'epoch': 2.16}                                                                                                                
-{'loss': 0.5882, 'grad_norm': 6.1078972816467285, 'learning_rate': 1.2418300653594772e-06, 'epoch': 2.25}                                                                                                          
-{'loss': 0.5898, 'grad_norm': 7.344321250915527, 'learning_rate': 1.0784313725490197e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.5646, 'grad_norm': 5.7647013664245605, 'learning_rate': 9.150326797385621e-07, 'epoch': 2.45}                                                                                                           
-{'loss': 0.5781, 'grad_norm': 5.839637756347656, 'learning_rate': 7.516339869281046e-07, 'epoch': 2.55}                                                                                                            
-{'loss': 0.5559, 'grad_norm': 6.378639221191406, 'learning_rate': 5.882352941176471e-07, 'epoch': 2.65}                                                                                                            
-{'loss': 0.4977, 'grad_norm': 5.05781364440918, 'learning_rate': 4.248366013071896e-07, 'epoch': 2.75}                                                                                                             
-{'loss': 0.5702, 'grad_norm': 8.530786514282227, 'learning_rate': 2.6143790849673207e-07, 'epoch': 2.84}                                                                                                           
-{'loss': 0.5634, 'grad_norm': 4.469091415405273, 'learning_rate': 9.803921568627452e-08, 'epoch': 2.94}                                                                                                            
-{'eval_loss': 0.5748319029808044, 'eval_accuracy': 0.7352941176470589, 'eval_f1': 0.7272727272727273, 'eval_precision': 0.75, 'eval_recall': 0.7058823529411765, 'eval_runtime': 8.5501, 'eval_samples_per_second': 23.859, 'eval_steps_per_second': 3.041, 'epoch': 3.0}                                                                                                                                                             
-{'train_runtime': 383.9084, 'train_samples_per_second': 6.377, 'train_steps_per_second': 0.797, 'train_loss': 0.6129411934247984, 'epoch': 3.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 306/306 [06:23<00:00,  1.25s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:08<00:00,  3.22it/s]
-Fold 4 metrics: {'eval_loss': 0.5748319029808044, 'eval_accuracy': 0.7352941176470589, 'eval_f1': 0.7272727272727273, 'eval_precision': 0.75, 'eval_recall': 0.7058823529411765, 'eval_runtime': 8.4061, 'eval_samples_per_second': 24.268, 'eval_steps_per_second': 3.093, 'epoch': 3.0}
+- Six fields are now used for the input representation: 
+  `section`, `entity_type`, `entity_text`, `concept`, `task`, `sentence_text` 
+- These components are concatenated into a single structured sequence using delimiters.
 
-=== Fold 5 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6301.94 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7991.54 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.7407, 'grad_norm': 7.275440216064453, 'learning_rate': 4.836601307189543e-06, 'epoch': 0.1}                                                                                                             
-{'loss': 0.6864, 'grad_norm': 3.576312780380249, 'learning_rate': 4.673202614379085e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.7212, 'grad_norm': 5.41370964050293, 'learning_rate': 4.509803921568628e-06, 'epoch': 0.29}                                                                                                             
-{'loss': 0.6851, 'grad_norm': 4.418787002563477, 'learning_rate': 4.34640522875817e-06, 'epoch': 0.39}                                                                                                             
-{'loss': 0.6622, 'grad_norm': 8.098418235778809, 'learning_rate': 4.183006535947713e-06, 'epoch': 0.49}                                                                                                            
-{'loss': 0.6468, 'grad_norm': 4.703812599182129, 'learning_rate': 4.019607843137255e-06, 'epoch': 0.59}                                                                                                            
-{'loss': 0.6385, 'grad_norm': 5.9076128005981445, 'learning_rate': 3.856209150326798e-06, 'epoch': 0.69}                                                                                                           
-{'loss': 0.6181, 'grad_norm': 4.326222896575928, 'learning_rate': 3.6928104575163404e-06, 'epoch': 0.78}                                                                                                           
-{'loss': 0.6564, 'grad_norm': 4.093571662902832, 'learning_rate': 3.529411764705883e-06, 'epoch': 0.88}                                                                                                            
-{'loss': 0.6114, 'grad_norm': 3.5349013805389404, 'learning_rate': 3.3660130718954253e-06, 'epoch': 0.98}                                                                                                          
-{'eval_loss': 0.6203426122665405, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.6907216494845361, 'eval_precision': 0.7282608695652174, 'eval_recall': 0.6568627450980392, 'eval_runtime': 8.6296, 'eval_samples_per_second': 23.64, 'eval_steps_per_second': 3.013, 'epoch': 1.0}                                                                                                                                                
-{'loss': 0.6346, 'grad_norm': 4.114821910858154, 'learning_rate': 3.2026143790849674e-06, 'epoch': 1.08}                                                                                                           
-{'loss': 0.5681, 'grad_norm': 6.203597068786621, 'learning_rate': 3.03921568627451e-06, 'epoch': 1.18}                                                                                                             
-{'loss': 0.609, 'grad_norm': 4.690674781799316, 'learning_rate': 2.8758169934640523e-06, 'epoch': 1.27}                                                                                                            
-{'loss': 0.5858, 'grad_norm': 5.201934814453125, 'learning_rate': 2.7124183006535947e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6179, 'grad_norm': 6.378772735595703, 'learning_rate': 2.549019607843137e-06, 'epoch': 1.47}                                                                                                            
-{'loss': 0.6127, 'grad_norm': 7.908201217651367, 'learning_rate': 2.38562091503268e-06, 'epoch': 1.57}                                                                                                             
-{'loss': 0.6047, 'grad_norm': 4.54854154586792, 'learning_rate': 2.222222222222222e-06, 'epoch': 1.67}                                                                                                             
-{'loss': 0.59, 'grad_norm': 3.822951555252075, 'learning_rate': 2.058823529411765e-06, 'epoch': 1.76}                                                                                                              
-{'loss': 0.5799, 'grad_norm': 6.052187442779541, 'learning_rate': 1.8954248366013072e-06, 'epoch': 1.86}                                                                                                           
-{'loss': 0.5529, 'grad_norm': 5.477267265319824, 'learning_rate': 1.7320261437908499e-06, 'epoch': 1.96}                                                                                                           
-{'eval_loss': 0.5875090956687927, 'eval_accuracy': 0.7303921568627451, 'eval_f1': 0.729064039408867, 'eval_precision': 0.7326732673267327, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.6086, 'eval_samples_per_second': 23.697, 'eval_steps_per_second': 3.02, 'epoch': 2.0}                                                                                                                                                 
-{'loss': 0.5577, 'grad_norm': 6.20262336730957, 'learning_rate': 1.5686274509803923e-06, 'epoch': 2.06}                                                                                                            
-{'loss': 0.5678, 'grad_norm': 6.735650539398193, 'learning_rate': 1.4052287581699348e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.5678, 'grad_norm': 3.600630760192871, 'learning_rate': 1.2418300653594772e-06, 'epoch': 2.25}                                                                                                           
-{'loss': 0.5868, 'grad_norm': 7.054193019866943, 'learning_rate': 1.0784313725490197e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.5617, 'grad_norm': 4.698666572570801, 'learning_rate': 9.150326797385621e-07, 'epoch': 2.45}                                                                                                            
-{'loss': 0.589, 'grad_norm': 4.330225944519043, 'learning_rate': 7.516339869281046e-07, 'epoch': 2.55}                                                                                                             
-{'loss': 0.5593, 'grad_norm': 4.791311264038086, 'learning_rate': 5.882352941176471e-07, 'epoch': 2.65}                                                                                                            
-{'loss': 0.5182, 'grad_norm': 4.761048793792725, 'learning_rate': 4.248366013071896e-07, 'epoch': 2.75}                                                                                                            
-{'loss': 0.5567, 'grad_norm': 8.709695816040039, 'learning_rate': 2.6143790849673207e-07, 'epoch': 2.84}                                                                                                           
-{'loss': 0.5293, 'grad_norm': 3.9157180786132812, 'learning_rate': 9.803921568627452e-08, 'epoch': 2.94}                                                                                                           
-{'eval_loss': 0.5767661929130554, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.6842105263157895, 'eval_precision': 0.7386363636363636, 'eval_recall': 0.6372549019607843, 'eval_runtime': 8.1957, 'eval_samples_per_second': 24.891, 'eval_steps_per_second': 3.172, 'epoch': 3.0}                                                                                                                                               
-{'train_runtime': 385.7048, 'train_samples_per_second': 6.347, 'train_steps_per_second': 0.793, 'train_loss': 0.6079462291368471, 'epoch': 3.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 306/306 [06:25<00:00,  1.26s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 5 metrics: {'eval_loss': 0.5767661929130554, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.6842105263157895, 'eval_precision': 0.7386363636363636, 'eval_recall': 0.6372549019607843, 'eval_runtime': 8.1708, 'eval_samples_per_second': 24.967, 'eval_steps_per_second': 3.182, 'epoch': 3.0}
+Clinical sentences are often brief and lack sufficient context in isolation. The `section` field provides higher-level document context (e.g. `chief complaint`), which helps:
 
---- SUMMARY ---
-Mean:
- eval_loss                   0.584146
-eval_accuracy               0.708824
-eval_f1                     0.701064
-eval_precision              0.722025
-eval_recall                 0.682353
-eval_runtime                8.217300
-eval_samples_per_second    24.829000
-eval_steps_per_second       3.164600
-dtype: float64
-Std:
- eval_loss                  0.028593
-eval_accuracy              0.034244
-eval_f1                    0.031547
-eval_precision             0.042793
-eval_recall                0.033678
-eval_runtime               0.105673
-eval_samples_per_second    0.314020
-eval_steps_per_second      0.040085
-dtype: float64
+- Disambiguate short or underspecified text  
+- Provide clinically relevant context for entity interpretation  
 
+This improves the model’s ability to correctly identify valid entities, particularly in context-dependent cases. This therefore:
 
-########## config_advanced ##########
+- Adds contextual signal without architectural changes  
+- Leverages transformer capacity to integrate structured inputs  
+- Supported by increased dataset size, reducing risk of instability from added input complexity  
 
-=== Fold 1 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6508.31 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7498.36 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.747, 'grad_norm': 4.838779926300049, 'learning_rate': 1.153846153846154e-06, 'epoch': 0.2}                                                                                                              
-{'loss': 0.7198, 'grad_norm': 3.7458441257476807, 'learning_rate': 2.307692307692308e-06, 'epoch': 0.39}                                                                                                           
-{'loss': 0.7128, 'grad_norm': 6.110123157501221, 'learning_rate': 2.947598253275109e-06, 'epoch': 0.59}                                                                                                            
-{'loss': 0.6959, 'grad_norm': 2.2874929904937744, 'learning_rate': 2.8165938864628822e-06, 'epoch': 0.78}                                                                                                          
-{'loss': 0.7161, 'grad_norm': 4.080483913421631, 'learning_rate': 2.685589519650655e-06, 'epoch': 0.98}                                                                                                            
-{'eval_loss': 0.6731498837471008, 'eval_accuracy': 0.5392156862745098, 'eval_f1': 0.6758620689655173, 'eval_precision': 0.5212765957446809, 'eval_recall': 0.9607843137254902, 'eval_runtime': 8.1829, 'eval_samples_per_second': 24.93, 'eval_steps_per_second': 3.177, 'epoch': 1.0}                                                                                                                                                
-{'loss': 0.6734, 'grad_norm': 3.3672540187835693, 'learning_rate': 2.554585152838428e-06, 'epoch': 1.18}                                                                                                           
-{'loss': 0.6872, 'grad_norm': 2.5804600715637207, 'learning_rate': 2.4235807860262008e-06, 'epoch': 1.37}                                                                                                          
-{'loss': 0.6735, 'grad_norm': 2.9233412742614746, 'learning_rate': 2.292576419213974e-06, 'epoch': 1.57}                                                                                                           
-{'loss': 0.6619, 'grad_norm': 2.583360195159912, 'learning_rate': 2.161572052401747e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.6333, 'grad_norm': 2.3330416679382324, 'learning_rate': 2.0305676855895198e-06, 'epoch': 1.96}                                                                                                          
-{'eval_loss': 0.6442933082580566, 'eval_accuracy': 0.6470588235294118, 'eval_f1': 0.6756756756756757, 'eval_precision': 0.625, 'eval_recall': 0.7352941176470589, 'eval_runtime': 8.1817, 'eval_samples_per_second': 24.934, 'eval_steps_per_second': 3.178, 'epoch': 2.0}                                                                                                                                                            
-{'loss': 0.6526, 'grad_norm': 3.1962227821350098, 'learning_rate': 1.8995633187772928e-06, 'epoch': 2.16}                                                                                                          
-{'loss': 0.6553, 'grad_norm': 4.0445475578308105, 'learning_rate': 1.7685589519650657e-06, 'epoch': 2.35}                                                                                                          
-{'loss': 0.6317, 'grad_norm': 3.8457465171813965, 'learning_rate': 1.6375545851528385e-06, 'epoch': 2.55}                                                                                                          
-{'loss': 0.6518, 'grad_norm': 4.725681304931641, 'learning_rate': 1.5065502183406112e-06, 'epoch': 2.75}                                                                                                           
-{'loss': 0.6258, 'grad_norm': 6.05428409576416, 'learning_rate': 1.3755458515283844e-06, 'epoch': 2.94}                                                                                                            
-{'eval_loss': 0.6176280379295349, 'eval_accuracy': 0.696078431372549, 'eval_f1': 0.6990291262135923, 'eval_precision': 0.6923076923076923, 'eval_recall': 0.7058823529411765, 'eval_runtime': 8.1892, 'eval_samples_per_second': 24.911, 'eval_steps_per_second': 3.175, 'epoch': 3.0}                                                                                                                                                
-{'loss': 0.617, 'grad_norm': 5.51137113571167, 'learning_rate': 1.2445414847161573e-06, 'epoch': 3.14}                                                                                                             
-{'loss': 0.6261, 'grad_norm': 6.5803608894348145, 'learning_rate': 1.1135371179039301e-06, 'epoch': 3.33}                                                                                                          
-{'loss': 0.6114, 'grad_norm': 3.584775686264038, 'learning_rate': 9.82532751091703e-07, 'epoch': 3.53}                                                                                                             
-{'loss': 0.6126, 'grad_norm': 3.876573085784912, 'learning_rate': 8.515283842794759e-07, 'epoch': 3.73}                                                                                                            
-{'loss': 0.6264, 'grad_norm': 3.409749984741211, 'learning_rate': 7.205240174672489e-07, 'epoch': 3.92}                                                                                                            
-{'eval_loss': 0.6008004546165466, 'eval_accuracy': 0.7107843137254902, 'eval_f1': 0.7121951219512195, 'eval_precision': 0.7087378640776699, 'eval_recall': 0.7156862745098039, 'eval_runtime': 8.1914, 'eval_samples_per_second': 24.904, 'eval_steps_per_second': 3.174, 'epoch': 4.0}                                                                                                                                               
-{'loss': 0.5941, 'grad_norm': 3.2961339950561523, 'learning_rate': 5.895196506550219e-07, 'epoch': 4.12}                                                                                                           
-{'loss': 0.6246, 'grad_norm': 6.448966979980469, 'learning_rate': 4.5851528384279476e-07, 'epoch': 4.31}                                                                                                           
-{'loss': 0.5856, 'grad_norm': 3.834684371948242, 'learning_rate': 3.275109170305677e-07, 'epoch': 4.51}                                                                                                            
-{'loss': 0.6279, 'grad_norm': 3.501538038253784, 'learning_rate': 1.9650655021834062e-07, 'epoch': 4.71}                                                                                                           
-{'loss': 0.6298, 'grad_norm': 4.000682830810547, 'learning_rate': 6.550218340611354e-08, 'epoch': 4.9}                                                                                                             
-{'eval_loss': 0.5966908931732178, 'eval_accuracy': 0.7303921568627451, 'eval_f1': 0.7342995169082126, 'eval_precision': 0.7238095238095238, 'eval_recall': 0.7450980392156863, 'eval_runtime': 8.2079, 'eval_samples_per_second': 24.854, 'eval_steps_per_second': 3.168, 'epoch': 5.0}                                                                                                                                               
-{'train_runtime': 609.5685, 'train_samples_per_second': 6.693, 'train_steps_per_second': 0.418, 'train_loss': 0.6502846269046559, 'epoch': 5.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 255/255 [10:09<00:00,  2.39s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 1 metrics: {'eval_loss': 0.5966908931732178, 'eval_accuracy': 0.7303921568627451, 'eval_f1': 0.7342995169082126, 'eval_precision': 0.7238095238095238, 'eval_recall': 0.7450980392156863, 'eval_runtime': 8.1762, 'eval_samples_per_second': 24.95, 'eval_steps_per_second': 3.18, 'epoch': 5.0}
+---
 
-=== Fold 2 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6742.14 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 8114.93 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6949, 'grad_norm': 3.054344415664673, 'learning_rate': 1.153846153846154e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.6957, 'grad_norm': 4.431373119354248, 'learning_rate': 2.307692307692308e-06, 'epoch': 0.39}                                                                                                            
-{'loss': 0.6883, 'grad_norm': 2.2611374855041504, 'learning_rate': 2.947598253275109e-06, 'epoch': 0.59}                                                                                                           
-{'loss': 0.6798, 'grad_norm': 4.601470947265625, 'learning_rate': 2.8165938864628822e-06, 'epoch': 0.78}                                                                                                           
-{'loss': 0.6812, 'grad_norm': 4.784141540527344, 'learning_rate': 2.685589519650655e-06, 'epoch': 0.98}                                                                                                            
-{'eval_loss': 0.6732297539710999, 'eval_accuracy': 0.6470588235294118, 'eval_f1': 0.6896551724137931, 'eval_precision': 0.6153846153846154, 'eval_recall': 0.7843137254901961, 'eval_runtime': 9.6811, 'eval_samples_per_second': 21.072, 'eval_steps_per_second': 2.686, 'epoch': 1.0}                                                                                                                                               
-{'loss': 0.6664, 'grad_norm': 5.8142781257629395, 'learning_rate': 2.554585152838428e-06, 'epoch': 1.18}                                                                                                           
-{'loss': 0.6436, 'grad_norm': 5.313536643981934, 'learning_rate': 2.4235807860262008e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6458, 'grad_norm': 5.6132330894470215, 'learning_rate': 2.292576419213974e-06, 'epoch': 1.57}                                                                                                           
-{'loss': 0.6427, 'grad_norm': 3.5187036991119385, 'learning_rate': 2.161572052401747e-06, 'epoch': 1.76}                                                                                                           
-{'loss': 0.6356, 'grad_norm': 3.53291392326355, 'learning_rate': 2.0305676855895198e-06, 'epoch': 1.96}                                                                                                            
-{'eval_loss': 0.6547300815582275, 'eval_accuracy': 0.6519607843137255, 'eval_f1': 0.6697674418604651, 'eval_precision': 0.6371681415929203, 'eval_recall': 0.7058823529411765, 'eval_runtime': 8.2007, 'eval_samples_per_second': 24.876, 'eval_steps_per_second': 3.17, 'epoch': 2.0}                                                                                                                                                
-{'loss': 0.6179, 'grad_norm': 4.653458118438721, 'learning_rate': 1.8995633187772928e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.6248, 'grad_norm': 4.8401360511779785, 'learning_rate': 1.7685589519650657e-06, 'epoch': 2.35}                                                                                                          
-{'loss': 0.6307, 'grad_norm': 5.774170875549316, 'learning_rate': 1.6375545851528385e-06, 'epoch': 2.55}                                                                                                           
-{'loss': 0.6239, 'grad_norm': 2.9207377433776855, 'learning_rate': 1.5065502183406112e-06, 'epoch': 2.75}                                                                                                          
-{'loss': 0.6012, 'grad_norm': 2.6670145988464355, 'learning_rate': 1.3755458515283844e-06, 'epoch': 2.94}                                                                                                          
-{'eval_loss': 0.6430061459541321, 'eval_accuracy': 0.6470588235294118, 'eval_f1': 0.6666666666666666, 'eval_precision': 0.631578947368421, 'eval_recall': 0.7058823529411765, 'eval_runtime': 8.1945, 'eval_samples_per_second': 24.895, 'eval_steps_per_second': 3.173, 'epoch': 3.0}                                                                                                                                                
-{'loss': 0.6076, 'grad_norm': 2.9811580181121826, 'learning_rate': 1.2445414847161573e-06, 'epoch': 3.14}                                                                                                          
-{'loss': 0.5963, 'grad_norm': 4.058131694793701, 'learning_rate': 1.1135371179039301e-06, 'epoch': 3.33}                                                                                                           
-{'loss': 0.5752, 'grad_norm': 6.015590190887451, 'learning_rate': 9.82532751091703e-07, 'epoch': 3.53}                                                                                                             
-{'loss': 0.6132, 'grad_norm': 5.794313430786133, 'learning_rate': 8.515283842794759e-07, 'epoch': 3.73}                                                                                                            
-{'loss': 0.5983, 'grad_norm': 3.777545690536499, 'learning_rate': 7.205240174672489e-07, 'epoch': 3.92}                                                                                                            
-{'eval_loss': 0.6366034150123596, 'eval_accuracy': 0.6470588235294118, 'eval_f1': 0.6727272727272727, 'eval_precision': 0.6271186440677966, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.2236, 'eval_samples_per_second': 24.807, 'eval_steps_per_second': 3.162, 'epoch': 4.0}                                                                                                                                               
-{'loss': 0.5748, 'grad_norm': 4.053283214569092, 'learning_rate': 5.895196506550219e-07, 'epoch': 4.12}                                                                                                            
-{'loss': 0.571, 'grad_norm': 6.826657772064209, 'learning_rate': 4.5851528384279476e-07, 'epoch': 4.31}                                                                                                            
-{'loss': 0.5717, 'grad_norm': 4.401938438415527, 'learning_rate': 3.275109170305677e-07, 'epoch': 4.51}                                                                                                            
-{'loss': 0.5843, 'grad_norm': 4.451901435852051, 'learning_rate': 1.9650655021834062e-07, 'epoch': 4.71}                                                                                                           
-{'loss': 0.6176, 'grad_norm': 3.800605535507202, 'learning_rate': 6.550218340611354e-08, 'epoch': 4.9}                                                                                                             
-{'eval_loss': 0.63321453332901, 'eval_accuracy': 0.6519607843137255, 'eval_f1': 0.6757990867579908, 'eval_precision': 0.6324786324786325, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.2062, 'eval_samples_per_second': 24.859, 'eval_steps_per_second': 3.168, 'epoch': 5.0}                                                                                                                                                 
-{'train_runtime': 2702.5606, 'train_samples_per_second': 1.51, 'train_steps_per_second': 0.094, 'train_loss': 0.6264516091814228, 'epoch': 5.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 255/255 [45:02<00:00, 10.60s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 2 metrics: {'eval_loss': 0.63321453332901, 'eval_accuracy': 0.6519607843137255, 'eval_f1': 0.6757990867579908, 'eval_precision': 0.6324786324786325, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.1707, 'eval_samples_per_second': 24.967, 'eval_steps_per_second': 3.182, 'epoch': 5.0}
+### 3. Cross-Validation Design Decisions
 
-=== Fold 3 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 3541.42 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 6854.59 examples/s]
-'(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')), '(Request ID: be241a3c-3f24-498f-846f-ed4e76a68a16)')' thrown while requesting HEAD https://huggingface.co/emilyalsentzer/Bio_ClinicalBERT/resolve/main/config.json
-Retrying in 1s [Retry 1/5].
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.689, 'grad_norm': 2.220276117324829, 'learning_rate': 1.153846153846154e-06, 'epoch': 0.2}                                                                                                              
-{'loss': 0.675, 'grad_norm': 2.3806445598602295, 'learning_rate': 2.307692307692308e-06, 'epoch': 0.39}                                                                                                            
-{'loss': 0.689, 'grad_norm': 3.681561231613159, 'learning_rate': 2.947598253275109e-06, 'epoch': 0.59}                                                                                                             
-{'loss': 0.6725, 'grad_norm': 5.038473129272461, 'learning_rate': 2.8165938864628822e-06, 'epoch': 0.78}                                                                                                           
-{'loss': 0.6741, 'grad_norm': 5.521280765533447, 'learning_rate': 2.685589519650655e-06, 'epoch': 0.98}                                                                                                            
-{'eval_loss': 0.6637473106384277, 'eval_accuracy': 0.6911764705882353, 'eval_f1': 0.7224669603524229, 'eval_precision': 0.656, 'eval_recall': 0.803921568627451, 'eval_runtime': 8.1878, 'eval_samples_per_second': 24.915, 'eval_steps_per_second': 3.175, 'epoch': 1.0}                                                                                                                                                             
-{'loss': 0.6691, 'grad_norm': 2.203174114227295, 'learning_rate': 2.554585152838428e-06, 'epoch': 1.18}                                                                                                            
-{'loss': 0.6507, 'grad_norm': 3.7673847675323486, 'learning_rate': 2.4235807860262008e-06, 'epoch': 1.37}                                                                                                          
-{'loss': 0.6576, 'grad_norm': 7.093120098114014, 'learning_rate': 2.292576419213974e-06, 'epoch': 1.57}                                                                                                            
-{'loss': 0.6533, 'grad_norm': 4.131730079650879, 'learning_rate': 2.161572052401747e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.6541, 'grad_norm': 2.757835865020752, 'learning_rate': 2.0305676855895198e-06, 'epoch': 1.96}                                                                                                           
-{'eval_loss': 0.6351597309112549, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.7087378640776699, 'eval_precision': 0.7019230769230769, 'eval_recall': 0.7156862745098039, 'eval_runtime': 8.1904, 'eval_samples_per_second': 24.907, 'eval_steps_per_second': 3.174, 'epoch': 2.0}                                                                                                                                               
-{'loss': 0.6349, 'grad_norm': 6.210569381713867, 'learning_rate': 1.8995633187772928e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.6471, 'grad_norm': 3.569507598876953, 'learning_rate': 1.7685589519650657e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.6633, 'grad_norm': 4.385367393493652, 'learning_rate': 1.6375545851528385e-06, 'epoch': 2.55}                                                                                                           
-{'loss': 0.6313, 'grad_norm': 3.1536059379577637, 'learning_rate': 1.5065502183406112e-06, 'epoch': 2.75}                                                                                                          
-{'loss': 0.6298, 'grad_norm': 4.305483818054199, 'learning_rate': 1.3755458515283844e-06, 'epoch': 2.94}                                                                                                           
-{'eval_loss': 0.6153010725975037, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.7169811320754716, 'eval_precision': 0.6909090909090909, 'eval_recall': 0.7450980392156863, 'eval_runtime': 8.2313, 'eval_samples_per_second': 24.784, 'eval_steps_per_second': 3.159, 'epoch': 3.0}                                                                                                                                               
-{'loss': 0.6189, 'grad_norm': 3.1084561347961426, 'learning_rate': 1.2445414847161573e-06, 'epoch': 3.14}                                                                                                          
-{'loss': 0.5751, 'grad_norm': 4.868940830230713, 'learning_rate': 1.1135371179039301e-06, 'epoch': 3.33}                                                                                                           
-{'loss': 0.6481, 'grad_norm': 4.60409688949585, 'learning_rate': 9.82532751091703e-07, 'epoch': 3.53}                                                                                                              
-{'loss': 0.6067, 'grad_norm': 5.453815937042236, 'learning_rate': 8.515283842794759e-07, 'epoch': 3.73}                                                                                                            
-{'loss': 0.6164, 'grad_norm': 3.82454776763916, 'learning_rate': 7.205240174672489e-07, 'epoch': 3.92}                                                                                                             
-{'eval_loss': 0.6031574010848999, 'eval_accuracy': 0.7156862745098039, 'eval_f1': 0.7238095238095238, 'eval_precision': 0.7037037037037037, 'eval_recall': 0.7450980392156863, 'eval_runtime': 8.193, 'eval_samples_per_second': 24.899, 'eval_steps_per_second': 3.173, 'epoch': 4.0}                                                                                                                                                
-{'loss': 0.6065, 'grad_norm': 3.885420799255371, 'learning_rate': 5.895196506550219e-07, 'epoch': 4.12}                                                                                                            
-{'loss': 0.5927, 'grad_norm': 2.9753994941711426, 'learning_rate': 4.5851528384279476e-07, 'epoch': 4.31}                                                                                                          
-{'loss': 0.6, 'grad_norm': 3.7761242389678955, 'learning_rate': 3.275109170305677e-07, 'epoch': 4.51}                                                                                                              
-{'loss': 0.6281, 'grad_norm': 3.9986321926116943, 'learning_rate': 1.9650655021834062e-07, 'epoch': 4.71}                                                                                                          
-{'loss': 0.625, 'grad_norm': 3.3126251697540283, 'learning_rate': 6.550218340611354e-08, 'epoch': 4.9}                                                                                                             
-{'eval_loss': 0.5988812446594238, 'eval_accuracy': 0.7156862745098039, 'eval_f1': 0.7264150943396226, 'eval_precision': 0.7, 'eval_recall': 0.7549019607843137, 'eval_runtime': 8.1939, 'eval_samples_per_second': 24.896, 'eval_steps_per_second': 3.173, 'epoch': 5.0}                                                                                                                                                              
-{'train_runtime': 598.958, 'train_samples_per_second': 6.812, 'train_steps_per_second': 0.426, 'train_loss': 0.6390871141471115, 'epoch': 5.0}                                                                     
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 255/255 [09:58<00:00,  2.35s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 3 metrics: {'eval_loss': 0.5988812446594238, 'eval_accuracy': 0.7156862745098039, 'eval_f1': 0.7264150943396226, 'eval_precision': 0.7, 'eval_recall': 0.7549019607843137, 'eval_runtime': 8.1726, 'eval_samples_per_second': 24.961, 'eval_steps_per_second': 3.181, 'epoch': 5.0}
+#### 3.1 Focused Comparison
 
-=== Fold 4 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6355.42 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7542.05 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6888, 'grad_norm': 7.319414138793945, 'learning_rate': 1.153846153846154e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.6954, 'grad_norm': 3.2575368881225586, 'learning_rate': 2.307692307692308e-06, 'epoch': 0.39}                                                                                                           
-{'loss': 0.6854, 'grad_norm': 2.779910087585449, 'learning_rate': 2.947598253275109e-06, 'epoch': 0.59}                                                                                                            
-{'loss': 0.6936, 'grad_norm': 2.6282970905303955, 'learning_rate': 2.8165938864628822e-06, 'epoch': 0.78}                                                                                                          
-{'loss': 0.6899, 'grad_norm': 2.6524596214294434, 'learning_rate': 2.685589519650655e-06, 'epoch': 0.98}                                                                                                           
-{'eval_loss': 0.6643292903900146, 'eval_accuracy': 0.696078431372549, 'eval_f1': 0.7047619047619048, 'eval_precision': 0.6851851851851852, 'eval_recall': 0.7254901960784313, 'eval_runtime': 35.8614, 'eval_samples_per_second': 5.689, 'eval_steps_per_second': 0.725, 'epoch': 1.0}                                                                                                                                                
-{'loss': 0.6752, 'grad_norm': 2.4689571857452393, 'learning_rate': 2.554585152838428e-06, 'epoch': 1.18}                                                                                                           
-{'loss': 0.6539, 'grad_norm': 4.455059051513672, 'learning_rate': 2.4235807860262008e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6367, 'grad_norm': 4.554679870605469, 'learning_rate': 2.292576419213974e-06, 'epoch': 1.57}                                                                                                            
-{'loss': 0.6609, 'grad_norm': 3.5090441703796387, 'learning_rate': 2.161572052401747e-06, 'epoch': 1.76}                                                                                                           
-{'loss': 0.6406, 'grad_norm': 3.4008772373199463, 'learning_rate': 2.0305676855895198e-06, 'epoch': 1.96}                                                                                                          
-{'eval_loss': 0.6449699997901917, 'eval_accuracy': 0.6764705882352942, 'eval_f1': 0.6944444444444444, 'eval_precision': 0.6578947368421053, 'eval_recall': 0.7352941176470589, 'eval_runtime': 8.2032, 'eval_samples_per_second': 24.868, 'eval_steps_per_second': 3.169, 'epoch': 2.0}                                                                                                                                               
-{'loss': 0.6417, 'grad_norm': 5.571811199188232, 'learning_rate': 1.8995633187772928e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.6488, 'grad_norm': 4.872065544128418, 'learning_rate': 1.7685589519650657e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.6317, 'grad_norm': 2.6064462661743164, 'learning_rate': 1.6375545851528385e-06, 'epoch': 2.55}                                                                                                          
-{'loss': 0.6056, 'grad_norm': 4.167960166931152, 'learning_rate': 1.5065502183406112e-06, 'epoch': 2.75}                                                                                                           
-{'loss': 0.6278, 'grad_norm': 4.146958351135254, 'learning_rate': 1.3755458515283844e-06, 'epoch': 2.94}                                                                                                           
-{'eval_loss': 0.6229619979858398, 'eval_accuracy': 0.7156862745098039, 'eval_f1': 0.7070707070707071, 'eval_precision': 0.7291666666666666, 'eval_recall': 0.6862745098039216, 'eval_runtime': 8.5157, 'eval_samples_per_second': 23.956, 'eval_steps_per_second': 3.053, 'epoch': 3.0}                                                                                                                                               
-{'loss': 0.6185, 'grad_norm': 2.442883253097534, 'learning_rate': 1.2445414847161573e-06, 'epoch': 3.14}                                                                                                           
-{'loss': 0.6126, 'grad_norm': 3.79654860496521, 'learning_rate': 1.1135371179039301e-06, 'epoch': 3.33}                                                                                                            
-{'loss': 0.6001, 'grad_norm': 3.3337395191192627, 'learning_rate': 9.82532751091703e-07, 'epoch': 3.53}                                                                                                            
-{'loss': 0.6144, 'grad_norm': 4.189702033996582, 'learning_rate': 8.515283842794759e-07, 'epoch': 3.73}                                                                                                            
-{'loss': 0.6135, 'grad_norm': 4.1502156257629395, 'learning_rate': 7.205240174672489e-07, 'epoch': 3.92}                                                                                                           
-{'eval_loss': 0.6145448684692383, 'eval_accuracy': 0.7205882352941176, 'eval_f1': 0.7246376811594203, 'eval_precision': 0.7142857142857143, 'eval_recall': 0.7352941176470589, 'eval_runtime': 8.6728, 'eval_samples_per_second': 23.522, 'eval_steps_per_second': 2.998, 'epoch': 4.0}                                                                                                                                               
-{'loss': 0.6061, 'grad_norm': 4.685867786407471, 'learning_rate': 5.895196506550219e-07, 'epoch': 4.12}                                                                                                            
-{'loss': 0.5698, 'grad_norm': 4.7024712562561035, 'learning_rate': 4.5851528384279476e-07, 'epoch': 4.31}                                                                                                          
-{'loss': 0.6071, 'grad_norm': 3.63592791557312, 'learning_rate': 3.275109170305677e-07, 'epoch': 4.51}                                                                                                             
-{'loss': 0.5932, 'grad_norm': 3.754626750946045, 'learning_rate': 1.9650655021834062e-07, 'epoch': 4.71}                                                                                                           
-{'loss': 0.5918, 'grad_norm': 3.7873005867004395, 'learning_rate': 6.550218340611354e-08, 'epoch': 4.9}                                                                                                            
-{'eval_loss': 0.6104689836502075, 'eval_accuracy': 0.7205882352941176, 'eval_f1': 0.7219512195121951, 'eval_precision': 0.7184466019417476, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.6699, 'eval_samples_per_second': 23.53, 'eval_steps_per_second': 2.999, 'epoch': 5.0}                                                                                                                                                
-{'train_runtime': 667.3721, 'train_samples_per_second': 6.114, 'train_steps_per_second': 0.382, 'train_loss': 0.6355254453771254, 'epoch': 5.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 255/255 [11:07<00:00,  2.62s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:08<00:00,  3.13it/s]
-Fold 4 metrics: {'eval_loss': 0.6104689836502075, 'eval_accuracy': 0.7205882352941176, 'eval_f1': 0.7219512195121951, 'eval_precision': 0.7184466019417476, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.6477, 'eval_samples_per_second': 23.59, 'eval_steps_per_second': 3.007, 'epoch': 5.0}
+Rather than exploring new hyperparameters, only two configurations from the previous iterations are evaluated. This controlled comparison isolates whether added complexity provides consistent benefit, and allows us to compare and choose the best model configuration.
 
-=== Fold 5 / 5 ===
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 816/816 [00:00<00:00, 6153.89 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 204/204 [00:00<00:00, 7660.90 examples/s]
-Some weights of BertForSequenceClassification were not initialized from the model checkpoint at emilyalsentzer/Bio_ClinicalBERT and are newly initialized: ['classifier.bias', 'classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-{'loss': 0.6786, 'grad_norm': 2.228025197982788, 'learning_rate': 1.153846153846154e-06, 'epoch': 0.2}                                                                                                             
-{'loss': 0.7037, 'grad_norm': 2.673931121826172, 'learning_rate': 2.307692307692308e-06, 'epoch': 0.39}                                                                                                            
-{'loss': 0.6869, 'grad_norm': 5.627331256866455, 'learning_rate': 2.947598253275109e-06, 'epoch': 0.59}                                                                                                            
-{'loss': 0.6707, 'grad_norm': 3.6336982250213623, 'learning_rate': 2.8165938864628822e-06, 'epoch': 0.78}                                                                                                          
-{'loss': 0.678, 'grad_norm': 4.08278226852417, 'learning_rate': 2.685589519650655e-06, 'epoch': 0.98}                                                                                                              
-{'eval_loss': 0.6665748357772827, 'eval_accuracy': 0.6225490196078431, 'eval_f1': 0.6577777777777778, 'eval_precision': 0.6016260162601627, 'eval_recall': 0.7254901960784313, 'eval_runtime': 8.6764, 'eval_samples_per_second': 23.512, 'eval_steps_per_second': 2.997, 'epoch': 1.0}                                                                                                                                               
-{'loss': 0.6472, 'grad_norm': 3.144113540649414, 'learning_rate': 2.554585152838428e-06, 'epoch': 1.18}                                                                                                            
-{'loss': 0.6655, 'grad_norm': 3.563610076904297, 'learning_rate': 2.4235807860262008e-06, 'epoch': 1.37}                                                                                                           
-{'loss': 0.6704, 'grad_norm': 7.48582124710083, 'learning_rate': 2.292576419213974e-06, 'epoch': 1.57}                                                                                                             
-{'loss': 0.6422, 'grad_norm': 2.942247152328491, 'learning_rate': 2.161572052401747e-06, 'epoch': 1.76}                                                                                                            
-{'loss': 0.6319, 'grad_norm': 3.5592875480651855, 'learning_rate': 2.0305676855895198e-06, 'epoch': 1.96}                                                                                                          
-{'eval_loss': 0.6407867074012756, 'eval_accuracy': 0.6470588235294118, 'eval_f1': 0.6635514018691588, 'eval_precision': 0.6339285714285714, 'eval_recall': 0.696078431372549, 'eval_runtime': 8.6701, 'eval_samples_per_second': 23.529, 'eval_steps_per_second': 2.999, 'epoch': 2.0}                                                                                                                                                
-{'loss': 0.6276, 'grad_norm': 4.227666854858398, 'learning_rate': 1.8995633187772928e-06, 'epoch': 2.16}                                                                                                           
-{'loss': 0.6426, 'grad_norm': 6.199865341186523, 'learning_rate': 1.7685589519650657e-06, 'epoch': 2.35}                                                                                                           
-{'loss': 0.6318, 'grad_norm': 4.546462535858154, 'learning_rate': 1.6375545851528385e-06, 'epoch': 2.55}                                                                                                           
-{'loss': 0.6128, 'grad_norm': 5.190675735473633, 'learning_rate': 1.5065502183406112e-06, 'epoch': 2.75}                                                                                                           
-{'loss': 0.6132, 'grad_norm': 3.1717946529388428, 'learning_rate': 1.3755458515283844e-06, 'epoch': 2.94}                                                                                                          
-{'eval_loss': 0.6198798418045044, 'eval_accuracy': 0.6911764705882353, 'eval_f1': 0.6834170854271356, 'eval_precision': 0.7010309278350515, 'eval_recall': 0.6666666666666666, 'eval_runtime': 9.4975, 'eval_samples_per_second': 21.479, 'eval_steps_per_second': 2.738, 'epoch': 3.0}                                                                                                                                               
-{'loss': 0.6415, 'grad_norm': 8.778083801269531, 'learning_rate': 1.2445414847161573e-06, 'epoch': 3.14}                                                                                                           
-{'loss': 0.5856, 'grad_norm': 4.235951900482178, 'learning_rate': 1.1135371179039301e-06, 'epoch': 3.33}                                                                                                           
-{'loss': 0.6451, 'grad_norm': 3.64151930809021, 'learning_rate': 9.82532751091703e-07, 'epoch': 3.53}                                                                                                              
-{'loss': 0.6089, 'grad_norm': 3.779498815536499, 'learning_rate': 8.515283842794759e-07, 'epoch': 3.73}                                                                                                            
-{'loss': 0.5947, 'grad_norm': 2.8549089431762695, 'learning_rate': 7.205240174672489e-07, 'epoch': 3.92}                                                                                                           
-{'eval_loss': 0.606634795665741, 'eval_accuracy': 0.7009803921568627, 'eval_f1': 0.6871794871794872, 'eval_precision': 0.7204301075268817, 'eval_recall': 0.6568627450980392, 'eval_runtime': 8.6446, 'eval_samples_per_second': 23.599, 'eval_steps_per_second': 3.008, 'epoch': 4.0}                                                                                                                                                
-{'loss': 0.6113, 'grad_norm': 4.134172439575195, 'learning_rate': 5.895196506550219e-07, 'epoch': 4.12}                                                                                                            
-{'loss': 0.5786, 'grad_norm': 3.8280551433563232, 'learning_rate': 4.5851528384279476e-07, 'epoch': 4.31}                                                                                                          
-{'loss': 0.5819, 'grad_norm': 4.305556774139404, 'learning_rate': 3.275109170305677e-07, 'epoch': 4.51}                                                                                                            
-{'loss': 0.5884, 'grad_norm': 3.135591745376587, 'learning_rate': 1.9650655021834062e-07, 'epoch': 4.71}                                                                                                           
-{'loss': 0.6164, 'grad_norm': 5.027393817901611, 'learning_rate': 6.550218340611354e-08, 'epoch': 4.9}                                                                                                             
-{'eval_loss': 0.6037787795066833, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.6938775510204082, 'eval_precision': 0.723404255319149, 'eval_recall': 0.6666666666666666, 'eval_runtime': 8.1896, 'eval_samples_per_second': 24.91, 'eval_steps_per_second': 3.175, 'epoch': 5.0}                                                                                                                                                 
-{'train_runtime': 629.7279, 'train_samples_per_second': 6.479, 'train_steps_per_second': 0.405, 'train_loss': 0.6337822521434111, 'epoch': 5.0}                                                                    
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 255/255 [10:29<00:00,  2.47s/it]
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26/26 [00:07<00:00,  3.31it/s]
-Fold 5 metrics: {'eval_loss': 0.6037787795066833, 'eval_accuracy': 0.7058823529411765, 'eval_f1': 0.6938775510204082, 'eval_precision': 0.723404255319149, 'eval_recall': 0.6666666666666666, 'eval_runtime': 8.169, 'eval_samples_per_second': 24.972, 'eval_steps_per_second': 3.183, 'epoch': 5.0}
+**Stable configuration (Run 3):**
 
---- SUMMARY ---
-Mean:
- eval_loss                   0.608607
-eval_accuracy               0.704902
-eval_f1                     0.710468
-eval_precision              0.699628
-eval_recall                 0.723529
-eval_runtime                8.267240
-eval_samples_per_second    24.688000
-eval_steps_per_second       3.146600
-dtype: float64
-Std:
- eval_loss                  0.014738
-eval_accuracy              0.030886
-eval_f1                    0.024654
-eval_precision             0.038773
-eval_recall                0.034244
-eval_runtime               0.212700
-eval_samples_per_second    0.613855
-eval_steps_per_second      0.078047
-dtype: float64
+This configuration reflects a conservative fine-tuning strategy derived from earlier runs (Run 3), prioritising training stability and minimising overfitting risk. It uses:
 
-===== FINAL COMPARISON =====
-            config  mean_accuracy  std_accuracy   mean_f1    std_f1  mean_precision  std_precision  mean_recall  std_recall
-1  config_advanced       0.704902      0.030886  0.710468  0.024654        0.699628       0.038773     0.723529    0.034244
-0    config_stable       0.708824      0.034244  0.701064  0.031547        0.722025       0.042793     0.682353    0.033678
+- Learning rate: 5e-6
+- Batch size: 8
+- Epochs: 3
+- Gradient clipping (max norm): 1.0
+
+This is the simpler, lower variance setup which previously achieved best single-run performance (F1 ≈ 0.75).
+
+**Advanced configuration (Run 6):**
+
+- Learning rate: 3e-6
+- Batch size: 8
+- Epochs: 5
+- Weight decay: 0.05
+- Gradient accumulation: 2
+- Warmup ratio: 0.1
+- Gradient clipping (max norm): 1.0
+
+This has more complex tuning (weight decay, warmup, accumulation), previously showed no clear improvement in single-run experiments and introduced additional training complexity, however it is included to confirm whether this scales with more data.
+
+---
+
+#### 3.2 Cross-Validation Strategy
+
+Cross-validation is now the primary method for performance estimation and model selection:
+
+- Cross-validation is performed only on the training set (1020 samples)
+- No fixed validation split is used in this stage as cross-validation fully replaces it for model selection
+
+Cross-validation procedure:
+
+- Stratified 5-fold split based on label (`is_valid`)
+- Each fold:
+  - Trains a fresh model from pretrained weights
+  - Evaluates on its validation fold
+- Metrics are aggregated across folds (mean and standard deviation)
+
+By replacing the previous validation split it provides:
+
+- More reliable generalisation estimates  
+- Quantification of performance variability  
+- Reduced dependence on a single data partition  
+
+---
+
+### 3.3 Model Selection Criteria
+
+Primary metric:
+- **F1-score (mean across folds)** as it captures overall balance
+
+Secondary considerations:
+- Standard deviation (stability)
+- Precision–recall balance
+
+Selection logic:
+- Prefer higher mean F1  
+- If similar, prefer lower variance (more stable model)  
+- Consider precision–recall trade-off if F1 is close (e.g. if one model has much higher recall but similar F1, it may be preferred)
+
+Currently for model selection, the focus is on f1 and recall, however at the final model stage we will adjust decision threshold to meet precision requirements meaning that the overall pipeline still is precision-focused.
+
+---
+
+### 4. Cross-Validation Results and Analysis
+
+#### 4.1 Stable Configuration (Run 3)
+
+| Fold | Accuracy | F1 Score | Precision | Recall | Loss |
+|------|----------|----------|-----------|--------|------|
+| 1    | 0.7353   | 0.7245   | 0.7553    | 0.6961 | 0.5651 |
+| 2    | 0.6520   | 0.6537   | 0.6505    | 0.6569 | 0.6346 |
+| 3    | 0.7157   | 0.7157   | 0.7157    | 0.7157 | 0.5694 |
+| 4    | 0.7353   | 0.7273   | 0.7500    | 0.7059 | 0.5748 |
+| 5    | 0.7059   | 0.6842   | 0.7386    | 0.6373 | 0.5768 |
+
+| Metric     | Mean   | Std Dev |
+|------------|--------|---------|
+| Accuracy   | 0.7088 | 0.0342  |
+| F1 Score   | 0.7011 | 0.0315  |
+| Precision  | 0.7220 | 0.0428  |
+| Recall     | 0.6824 | 0.0337  |
+| Loss       | 0.5841 | 0.0286  |
+
+1. **Overall Performance**
+- The model achieves a mean F1 score of ~0.70, indicating moderate classification performance.
+- Accuracy (~0.71) is consistent with F1, suggesting no major imbalance-driven inflation.
+- Precision (0.72) exceeds recall (0.68), indicating a slight bias toward conservative positive predictions (fewer false positives, more false negatives).
+
+2. **Stability and Variance**
+- Standard deviations across all metrics are low (≈0.03–0.04), indicating stable performance across folds.
+- No evidence of catastrophic fold failure; worst-performing fold (Fold 2) remains within a reasonable range.
+
+3. **Fold-Level Observations**
+- Fold 2 underperforms (F1 ≈ 0.65), suggesting sensitivity to specific data partitions.
+- Folds 1 and 4 achieve the highest performance (F1 ≈ 0.72–0.73), demonstrating the model’s upper bound under this configuration.
+- Remaining folds cluster tightly around the mean, reinforcing robustness.
+
+4. **Training Dynamics**
+- Training loss decreases consistently across epochs, with validation metrics improving incrementally.
+- Performance gains plateau by epoch 2–3, indicating that additional epochs are unlikely to yield significant improvements under this configuration.
+- Absence of warmup and regularisation does not destabilise training, likely due to the low learning rate.
+
+5. **Bias Characteristics**
+- Higher precision than recall suggests:
+  - The model is more cautious when predicting positive labels (`is_valid=True`)
+  - Potential under-detection of valid entities (false negatives)
+- This behaviour may be desirable depending on downstream tolerance for false positives vs false negatives.
+
+---
+
+#### 4.2 Advanced Configuration (Run 6)
+
+| Fold | Accuracy | F1 Score | Precision | Recall | Loss     |   
+|------|----------|----------|----------|-----------|--------|
+| 1    | 0.7304   | 0.7343   | 0.7238    | 0.7451 | 0.5967 |
+| 2    | 0.6520   | 0.6758   | 0.6325    | 0.7255 | 0.6332 |
+| 3    | 0.7157   | 0.7264   | 0.7000    | 0.7549 | 0.5989 |
+| 4    | 0.7206   | 0.7220   | 0.7184    | 0.7255 | 0.6105 |
+| 5    | 0.7059   | 0.6939   | 0.7234    | 0.6667 | 0.6038 |
+
+| Metric        | Mean     | Std Dev  |
+|--------------|----------|----------|
+| Accuracy      | 0.7049   | 0.0309   |
+| F1 Score      | 0.7105   | 0.0247   |
+| Precision     | 0.6996   | 0.0388   |
+| Recall        | 0.7235   | 0.0342   |
+| Loss          | 0.6086   | 0.0147   |
+
+**1. Overall Performance**
+- The model achieves a mean F1 score of ~0.71, indicating solid and slightly improved performance compared to the prior configuration.
+- Accuracy (~0.70) aligns closely with F1, suggesting balanced classification without inflation from class imbalance.
+- Recall (0.72) exceeds precision (0.70), indicating a mild tendency toward capturing positives more aggressively (higher sensitivity).
+
+**2. Stability and Variance**
+- Standard deviations remain low across metrics (≈0.02–0.04), confirming stable cross-validation performance.
+- Loss variance is particularly small (~0.015), indicating consistent optimisation behaviour across folds.
+- No fold exhibits instability or collapse; variability is within expected bounds for small datasets.
+
+**3. Fold-Level Observations**
+- Fold 1 achieves the highest performance (F1 ≈ 0.73), representing the upper bound under this configuration.
+- Fold 3 and Fold 4 also perform strongly and consistently (~0.72–0.73 F1).
+- Fold 2 is the weakest (F1 ≈ 0.68), primarily due to lower precision, suggesting sensitivity to data partitioning.
+- Fold 5 shows a different error profile: relatively high precision but notably lower recall, indicating missed positives.
+- Overall, folds cluster tightly, reinforcing robustness despite minor partition sensitivity.
+
+**4. Training Dynamics**
+- Training loss decreases steadily across all folds, with validation performance improving consistently.
+- Most gains occur within the first 2–3 epochs, after which improvements are incremental, indicating early convergence.
+- Later epochs still yield small but consistent improvements, suggesting the learning rate schedule (decay) is effective.
+- No evidence of overfitting: validation metrics continue to improve or stabilise rather than degrade.
+
+**5. Bias Characteristics**
+- The model shows a slight recall bias overall:
+  - More inclined to predict positives (`is_valid=True`)
+  - Lower false negative rate at the expense of some false positives
+- However, this bias is not uniform:
+  - Fold 5 reverses this pattern (precision > recall), indicating dataset-dependent behaviour
+- This suggests the decision boundary is moderately sensitive to data distribution, but not excessively unstable.
+- Depending on downstream use:
+  - This configuration is better suited where missing positives is more costly than false alarms
+
+---
+
+### 5. Configuration Comparison
+
+#### 5.1 Overall Performance Comparison
+
+| Metric        | Stable     | Advanced  | Comment    |
+|--------------|----------|----------|------------|
+| F1 Score      |  0.7011  |  **0.7105**  | The advanced configuration provides a modest improvement in balanced performance, indicating better overall classification quality |
+| Accuracy      |  **0.7088**  |  0.7049  | Difference is negligible (<0.5%), confirming both models perform similarly in aggregate correctness |
+| Precision     |  **0.7220**  |  0.6996  | Stable has higher precision (fewer false positives) |
+| Recall        |  0.6824  |  **0.7235**  | Advanced has higher recall (fewer false negatives) |
+
+---
+
+#### 5.2 Precision–Recall Trade-off and Error Profile
+
+Error Profile Comparison:
+
+- Stable configuration:
+  - Higher precision → fewer false positives
+  - Lower recall → **more missed true positives (false negatives)**
+- Advanced configuration:
+  - Higher recall → **fewer missed true positives**
+  - Slightly lower precision → more false positives
+- Decision boundary behaviour:
+  - Stable = conservative classifier  
+  - Advanced = sensitive classifier 
+
+Overall Precision vs Recall Trade-off:
+
+- Stable configuration is a conservative model (precision > recall = fewer false positives, more false negatives)
+- Advanced configuration is a recall-oriented model (recall > precision = fewer false negatives, more false positives)
+
+---
+
+#### 5.3 Stability and Variance
+
+| Metric        | Stable (Std Dev) | Advanced (Std Dev) |
+|---------------|------------------|--------------------|
+| F1 Score      | 0.0315           | **0.0247**         |
+| Accuracy      | 0.0342           | **0.0309**         |
+| Precision     | 0.0428           | **0.0388**         |
+| Recall        | **0.0337**       | 0.0342             |
+| Loss          | 0.0286           | **0.0147**         |
+
+- Both configurations show low variance across folds (std ≈ 0.02–0.04), indicating robust generalisation.
+- Advanced configuration has:
+  - Slightly lower F1 variance (0.0247 vs 0.0315)
+  - More consistent loss behaviour  
+- Suggests advanced configuration has more reliable optimisation and generalisation.
+
+---
+
+### 6. Interpretation and Final Decision
+
+#### 6.1 Clinical Context
+
+For a clinical notes extraction tool, error costs are asymmetric:
+
+- **False Negatives (FN; missed entities)**:
+  - Result in loss of clinically relevant information  
+  - Cannot be recovered downstream if the model assigns low scores to true positives  
+- **False Positives (FP; incorrect entities)**:
+  - Typically recoverable  
+  - Can be filtered via thresholding, rules, or human review  
+
+Therefore, **recall (sensitivity)** is prioritised at the model selection stage.
+
+---
+
+#### 6.2 Implications for Model Behaviour
+
+The advanced configuration aligns better with this objective:
+
+- Higher recall → more true positives assigned higher scores  
+- Slightly lower precision → more false positives, but acceptable  
+
+This reflects a **recall-oriented model**, which is preferable because:
+
+- Model outputs are continuous scores (probabilities), not fixed labels  
+- Classification depends on a **decision threshold** (default = 0.5)  
+- Threshold tuning operates on these scores, not on learned representations  
+
+Key principle:
+
+- Model training determines ranking (score separation between classes)
+- Threshold tuning selects an operating point on that ranking
+
+Implications:
+
+- A good model assigns **higher scores to true positives than true negatives**  
+- This enables threshold tuning to:
+  - Increase precision (by raising threshold)  
+  - Increase recall (by lowering threshold), within limits  
+
+However, limits exist:
+
+- If true positives are assigned **low scores (poor ranking)**:
+  - Lowering the threshold recovers them **but also admits many false positives**
+  - Precision degrades rapidly → unusable trade-off  
+
+This is why FN are effectively “irreversible”:
+
+- Recovery requires lowering the threshold into regions dominated by negatives  
+- This introduces excessive FP, collapsing precision  
+
+Therefore:
+
+- **High recall indicates better positive-class coverage and score assignment**
+- **Better ranking → more effective threshold tuning**
+- **Poor recall → limited recoverability regardless of threshold**
+
+Conclusion:
+
+- Model selection should prioritise **F1 + recall**, as proxies for ranking quality  
+- A recall-oriented model preserves usable signal for downstream optimisation  
+- Precision can be adjusted post hoc; recall is constrained by the learned score distribution  
+
+---
+
+#### 6.3 Final Decision
+
+The **advanced configuration** is selected for final model training.
+
+Rationale:
+
+- Higher F1 → improved overall balance  
+- Higher recall → better coverage of true positives  
+- Comparable accuracy and variance → no meaningful loss in stability  
+- More suitable error profile for clinical extraction 
+
+Interpretation:
+
+- The advanced model assigns **higher probabilities to more true positives**  
+- This implies **better separation between positive and negative classes**  
+- This separation is critical for effective threshold tuning   
+
+Operational consequences:
+
+- At deployment:
+  - Threshold can be **increased** to improve precision  
+  - Recall will decrease in a controlled manner  
+- This enables tailoring to downstream constraints without retraining  
+
+By contrast:
+
+- The stable model:
+  - Has higher precision but lower recall  
+  - Misses more true positives (lower recall ceiling)  
+  - Indicates weaker positive-class scoring  
+- Threshold tuning cannot recover these missed positives without severe precision loss  
+
+Final justification:
+
+- Select the model with **better ranking and recall (advanced)**  
+- Then use **threshold tuning** to achieve the desired precision–recall balance  
+
+This approach maximises retention of clinically relevant information while preserving flexibility for downstream optimisation.
+
+---
+
+### 7. Workflow Implementation
+
+This logic is implemented in `cross_validation.py` as follows:
+
+1. **Reproducibility Setup**  
+  - Set fixed random seeds across Python, NumPy, and PyTorch to ensure deterministic training behaviour.
+
+2. **Data Loading and Preparation**  
+  - Load the full training dataset (`train.csv`)  
+  - Convert target variable (`is_valid`) to binary label format
+
+3. **Tokenizer Initialisation**  
+  - Load pretrained BioClinicalBERT tokenizer  
+  - Define structured input format combining:
+    - section, entity_type, entity_text, concept, task, sentence_text  
+
+4. **Metric Definition**  
+  - Define evaluation metrics:
+    - Accuracy
+    - Precision
+    - Recall
+    - F1-score  
+
+5. **Hyperparameter Configuration Loop**  
+  - Iterate over candidate configurations:
+    - Stable baseline
+    - Advanced tuned configuration  
+
+6. **Stratified K-Fold Cross-Validation**  
+  - Apply 5-fold stratified split based on class labels  
+  - For each fold:
+    1. Split into training and validation subsets  
+    2. Convert to Hugging Face `Dataset` format  
+    3. Tokenize inputs  
+    4. Remove raw text columns and set tensor format  
+    5. Initialise a fresh model from pretrained weights  
+    6. Configure training arguments dynamically per configuration  
+    7. Train model on training fold  
+    8. Evaluate on validation fold  
+
+7. **Fold-Level Metric Collection**  
+  - Store evaluation metrics for each fold:
+    - `eval_accuracy`, `eval_precision`, `eval_recall`, `eval_f1`, `eval_loss`
+
+8. **Aggregation of Results**  
+  - Compute mean and standard deviation across folds for each metric  
+  - Save per-fold metrics to:
+    - `config_<name>_folds.csv`
+
+9. **Final Configuration Comparison**  
+  - Aggregate results across configurations  
+  - Save summary comparison to:
+    - `final_comparison.csv`  
+  - Rank configurations based on mean F1-score  
+
+10. **Output Generation**  
+  - Persist evaluation artefacts to:
+    - `results/cross_validation/`  
+  - No models or checkpoints are saved in this stage  
+
+---
+
+## Threshold Tuning
+
+### 1. Objective
+
+- The objective of this section is to determine an optimal decision threshold for converting model output probabilities into binary predictions.
+- Rather than using the default threshold of 0.5, the threshold is tuned to achieve a more appropriate balance between precision and recall for the clinical extraction task.
+- Out-of-fold (OOF) predicted probabilities are used to:
+  - Provide unbiased predictions for all training samples  
+  - Enable threshold optimisation without introducing data leakage  
+- The selected threshold aims to:
+  - Maximise overall performance (e.g. F1-score)  
+  - While ensuring recall remains sufficiently high to minimise missed clinically relevant entities  
+
+This stage bridges model selection and final training by calibrating the decision boundary according to task-specific error trade-offs.
+
+---
+
+### 2. Out-of-Fold (OOF) Predictions: Design and Rationale
+
+#### 2.1 Overview
+
+Out-of-fold (OOF) predictions are generated using cross-validation such that:
+
+- Each sample is predicted only by a model that was not trained on it
+- Predictions are collected across all folds to produce a full-length prediction vector
+
+As a result every training sample has:
+
+- A true label (`y_true`)
+- An out-of-sample predicted probability (`y_prob`)
+
+This creates a dataset equivalent to a validation set covering the entire training distribution, without data leakage.
+
+---
+
+#### 2.2 Rationale
+
+Threshold tuning requires unbiased probability estimates. Using:
+
+- Training predictions → invalid (overfitted, optimistic)
+- Single validation split → unstable, dependent on one partition
+
+OOF predictions solve both issues:
+
+- **No leakage** → each prediction is out-of-sample  
+- **Full data coverage** → all samples contribute  
+- **Stable estimates** → reduces variance from a single split  
+
+This makes OOF predictions the correct input for threshold tuning.
+
+- **Unbiased**: no sample is predicted by a model trained on it  
+- **Aligned**: predictions correspond exactly to original dataset order  
+- **Complete**: covers entire dataset (N samples)  
+- **Continuous**: preserves full probability information (not thresholded)  
+
+---
+
+#### 2.3 OOF Generation
+
+Using stratified K-fold cross-validation (K=5):
+
+For each fold:
+
+1. Split training data into:
+  - Training subset (80%)
+  - Validation subset (20%)
+
+2. Train model on training subset only
+
+3. Generate predictions on validation subset:
+  - Model outputs logits (raw scores per class)
+  - Apply softmax to convert logits → probabilities
+  - Extract probability of positive class (`label = 1`)
+
+4. Store predictions in the correct positions:
+  - Use `val_idx` to place predictions back into the full dataset structure
+
+After all folds:
+
+- Every sample has exactly one prediction, made out-of-sample
+- Predictions are combined into a single array aligned with ground truth
+
+---
+
+#### 2.4 Output Structure
+
+This array of predictions for each sample is then converted into a DataFrame with two columns:
+
+1. `y_true`:
+  - Ground truth labels (0 or 1)
+  - Required for computing metrics at different thresholds  
+
+2. `y_prob`:
+  - Predicted probability of the positive class
+  - Continuous values in [0, 1]
+  - Used to simulate different decision thresholds  
+
+This structure is minimal and sufficient for:
+
+- Threshold tuning  
+- Precision–recall analysis (e.g. PR curves, threshold vs metrics plots)
+- Metric computation across thresholds
+
+No additional data is required.
+
+---
+
+### 3. Workflow Implementation
+
+This logic is implemented in `generate_oof_predictions.py`:
+
+1. Load full training dataset and initialise label column  
+2. Create empty arrays:
+  - `oof_probs` (size N) for predicted probabilities  
+  - `oof_labels` (size N) for ground truth  
+3. Initialise stratified 5-fold splitter  
+4. For each fold:
+  - Split indices into train/validation  
+  - Convert subsets to Hugging Face Dataset format  
+  - Tokenise structured inputs  
+  - Train model using advanced configuration  
+  - Generate predictions on validation fold:
+    - Extract logits  
+    - Apply softmax → probabilities  
+    - Select positive class probability  
+  - Insert predictions into `oof_probs` using `val_idx`  
+5. After all folds:
+  - Combine `y_true` and `y_prob` into DataFrame  
+6. Save to:
+  - `results/threshold_tuning/oof_predictions.csv`  
+7. Run sanity checks:
+  - Shape matches dataset size  
+  - Label distribution is preserved  
+  - Probability range is within [0, 1]  
+
+---
+
+### 4. OOF Generation Validation
+
+**Dataset Coverage**
+
+- Total samples: 1020  
+- OOF predictions generated: 1020  
+- Alignment: Each sample received exactly one out-of-sample prediction  
+
+This confirms full coverage with no data leakage, as each prediction was produced by a model that did not see the corresponding sample during training.
+
+**Label Distribution**
+
+- Positive class (1): 50%  
+- Negative class (0): 50%  
+
+Stratified K-fold splitting preserved class balance across folds, ensuring stable and representative training and validation partitions.
+
+**Probability Distribution**
+
+- Minimum predicted probability: 0.1907  
+- Maximum predicted probability: 0.7557  
+
+Key observations:
+
+- Predictions span a meaningful probability range (not collapsed to a narrow band)
+- No extreme saturation near 0 or 1, indicating the model retains uncertainty
+- Suitable for threshold tuning, as different decision thresholds will produce different precision–recall trade-offs
+
+**Training Behaviour (Summary)**
+
+Across folds:
+- Training loss consistently decreased over epochs
+- No signs of divergence or instability
+- Gradient norms remained within reasonable bounds
+
+This indicates stable optimisation under the selected configuration.
+
+These outputs are therefore suitable for selecting an optimal decision threshold in the next stage.
+
+---
+
+### 5. Threshold Tuning: Design and Rationale
+	
+
 
 
 ---
 
-Threshold tuning - for final model selection
+During Threshold Tuning (OOF stage)
+
+Purpose: this is where plots are actually useful
+
+You are trying to choose a decision threshold → this is inherently a curve-based problem
+
+You SHOULD generate:
+
+1. Precision–Recall (PR) Curve
+	•	X-axis: Recall
+	•	Y-axis: Precision
+
+Why this matters:
+	•	Your task prioritises recall but still needs usable precision
+	•	PR curve shows the full trade-off across thresholds
+
+⸻
+
+2. F1 vs Threshold Curve
+	•	X-axis: threshold (0 → 1)
+	•	Y-axis: F1
+
+Why:
+	•	Lets you directly pick the threshold that maximises F1
+
+⸻
+
+3. Precision & Recall vs Threshold (optional but very useful)
+	•	Plot both on same graph
+
+Why:
+	•	Makes trade-off explicit:
+	•	where recall drops sharply
+	•	where precision becomes acceptable
+
+⸻
+
+Key point
+
+This is the most important visualisation stage in your pipeline
+—not final training.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+
+Final Model Evaluation (test set stage)
+
+Purpose: reporting performance (this must include plots)
+
+After:
+	•	final training (on 1020)
+	•	threshold selected
+
+Then evaluate on held-out test set
+
+Required plots:
+
+1. Precision–Recall Curve (test set)
+	•	This is standard for imbalanced classification
+	•	More informative than ROC in your case
+
+⸻
+
+2. Confusion Matrix (at chosen threshold)
+Shows:
+	•	False negatives (critical)
+	•	False positives
+
+⸻
+
+Optional:
+
+ROC curve
+	•	Not essential unless required by convention
+
+
+---
+
+
 
 error analysis - post hoc analysis
 
