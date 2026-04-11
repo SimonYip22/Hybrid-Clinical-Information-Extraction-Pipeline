@@ -1,45 +1,44 @@
 """
-train_validate_transformer.py
+cross_validation.py
 
 Purpose:
-    - Train and validate a transformer-based binary classification model (BioClinicalBERT)
-      for entity validation in clinical text. 
-    - The script performs standard fine-tuning using a predefined train/validation split, 
-      monitors performance via validation metrics, and assesses robustness using stratified K-fold cross-validation.
+    - Perform stratified K-fold cross-validation to evaluate and compare
+      multiple hyperparameter configurations for a transformer-based
+      binary classification model (BioClinicalBERT) on clinical text.
+    - This script is used for model selection, not final training.
 
 Workflow:
     1. Set reproducibility seeds for deterministic training.
-    2. Load pre-split training and validation datasets from disk.
-    3. Convert raw data into Hugging Face Dataset format.
-    4. Construct structured input sequences combining:
-    entity_type, entity_text, concept, task, and sentence_text.
-    5. Tokenize inputs using the pretrained BioClinicalBERT tokenizer.
-    6. Load BioClinicalBERT with a randomly initialised classification head.
-    7. Define evaluation metrics (accuracy, precision, recall, F1).
-    8. Configure training parameters (batch size, learning rate, scheduler, etc.).
-    9. Train the model using Hugging Face Trainer with epoch-level validation.
-    10. Perform 5-fold stratified cross-validation to assess robustness:
-        - Reset model for each fold
-        - Train and evaluate independently
-        - Aggregate metrics across folds
-    11. Save the final trained model and tokenizer.
+    2. Load the full training dataset.
+    3. Define candidate hyperparameter configurations.
+    4. Perform stratified K-fold cross-validation (K=5):
+        - Split data into train/validation folds
+        - Train a fresh model on each training fold
+        - Evaluate on the corresponding validation fold
+    5. Compute evaluation metrics per fold:
+        - Accuracy, Precision, Recall, F1-score
+    6. Aggregate results across folds:
+        - Mean and standard deviation for each metric
+    7. Compare configurations based on cross-validation performance.
+
+Key Notes:
+    - No fixed validation set is used; validation is handled via cross-validation.
+    - No final model is trained or saved in this script.
+    - No threshold tuning is performed here.
+    - This script does NOT generate out-of-fold (OOF) predictions.
 
 Outputs:
-- Trained model and tokenizer:
-  models/bioclinicalbert/
-    ├── config.json
-    ├── pytorch_model.bin
-    ├── tokenizer_config.json
-    ├── vocab.txt
-    └── special_tokens_map.json
+- Per-fold metrics for each configuration:
+  results/cross_validation/
+    ├── config_stable_folds.csv
+    ├── config_advanced_folds.csv
 
-- Training logs (stdout):
-  - Training and validation metrics per epoch
-  - Cross-validation metrics per fold
-  - Aggregated mean and standard deviation of metrics
+- Aggregated comparison:
+    ├── final_comparison.csv
 
-- No intermediate artefacts are persisted beyond checkpoints
-  (limited by save_total_limit=2).
+- Console logs:
+    - Fold-level metrics
+    - Mean and standard deviation summaries
 """
 
 import pandas as pd
@@ -78,7 +77,7 @@ torch.backends.cudnn.benchmark = False
 TRAIN_PATH = "data/extraction/new_splits/train.csv"
 MODEL_NAME = "emilyalsentzer/Bio_ClinicalBERT"
 
-CV_OUTPUT_DIR = Path("models/bioclinicalbert_v2/cross_validation")
+CV_OUTPUT_DIR = Path("results/cross_validation")
 CV_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_LENGTH = 512
@@ -211,7 +210,7 @@ for config in HYPERPARAM_CONFIGS:
         # -------------------------
 
         training_args = TrainingArguments(
-            output_dir=str(CV_OUTPUT_DIR / config['name'] / f"fold_{fold}"),
+            output_dir=CV_OUTPUT_DIR,
             eval_strategy="epoch",
             save_strategy="no",
             load_best_model_at_end=False,

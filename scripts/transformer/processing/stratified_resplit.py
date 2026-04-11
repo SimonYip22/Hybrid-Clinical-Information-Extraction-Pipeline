@@ -7,20 +7,20 @@ Purpose:
     - Ensure balanced representation across both:
         - task (symptom_presence, intervention_performed, clinical_condition_active)
         - label (is_valid: True/False)
-    - Prevent data leakage and preserve statistical integrity.
+    - Ensure the test set remains fully unseen during cross-validation and final model training.
 
 Workflow:
     1. Load validated annotated dataset (1200 rows).
     2. Create stratification key combining:
         - task + is_valid
     3. Perform stratified split:
-        - Train (85%) vs Eval (15%)
+        - Train (85%) vs Test (15%)
     4. Verify split sizes and distributions.
     5. Save splits to CSV files.
 
 Outputs: data/extraction/splits/
     - train.csv (1020 rows)
-    - eval.csv (180 rows)
+    - test.csv (180 rows)
 """
 
 import pandas as pd
@@ -35,7 +35,7 @@ ORIGINAL_INPUT_FILE = "data/extraction/sampling/annotation_sample_labeled.csv"
 NEW_INPUT_FILE = "data/extraction/sampling/additional_annotation_sample_labeled.csv"
 
 TRAIN_OUTPUT_FILE = "data/extraction/new_splits/train.csv"
-EVAL_OUTPUT_FILE = "data/extraction/new_splits/eval.csv"
+TEST_OUTPUT_FILE = "data/extraction/new_splits/test.csv"
 
 RANDOM_STATE = 42
 
@@ -68,9 +68,9 @@ final_df["stratify_key"] = final_df["task"].astype(str) + "_" + final_df["is_val
 # 4. Split (Train vs Eval)
 # -------------------------
 
-train_df, eval_df = train_test_split(
+train_df, test_df = train_test_split(
     final_df,
-    test_size=0.15,  # 15% eval = 180 rows
+    test_size=0.15,  # 15% test = 180 rows
     stratify=final_df["stratify_key"],
     random_state=RANDOM_STATE
 )
@@ -79,7 +79,7 @@ train_df, eval_df = train_test_split(
 # 5. Drop helper column
 # -------------------------
 
-for split in [train_df, eval_df]:
+for split in [train_df, test_df]:
     split.drop(columns=["stratify_key"], inplace=True) # inplace=True modifies the DataFrame directly (no copy created)
 
 # -------------------------
@@ -87,7 +87,7 @@ for split in [train_df, eval_df]:
 # -------------------------
 
 train_df = train_df.reset_index(drop=True)
-eval_df = eval_df.reset_index(drop=True)
+test_df = test_df.reset_index(drop=True)
 
 # -------------------------
 # 8. Verification
@@ -96,7 +96,7 @@ eval_df = eval_df.reset_index(drop=True)
 # Verify sizes
 print("\n=== SPLIT SIZES ===")
 print(f"Train: {len(train_df)}")
-print(f"Eval: {len(eval_df)}")
+print(f"Test: {len(test_df)}")
 
 # Verify distributions
 def check_distribution(name, data):
@@ -111,14 +111,14 @@ def check_distribution(name, data):
     print(pd.crosstab(data["task"], data["is_valid"])) # cross-tab to show distribution of is_valid within each task
 
 check_distribution("Train", train_df)
-check_distribution("Eval", eval_df)
+check_distribution("Test", test_df)
 
 # -------------------------
 # 9. Save Outputs
 # -------------------------
 
 train_df.to_csv(TRAIN_OUTPUT_FILE, index=False) 
-eval_df.to_csv(EVAL_OUTPUT_FILE, index=False)
+test_df.to_csv(TEST_OUTPUT_FILE, index=False)
 
 print("\nSplits saved successfully.")
 
