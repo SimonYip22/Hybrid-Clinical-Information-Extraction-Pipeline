@@ -3451,7 +3451,7 @@ No additional data is required.
 
 ---
 
-### 3. Workflow Implementation
+### 3. Out-of-Fold Predictions Workflow Implementation
 
 This logic is implemented in `generate_oof_predictions.py`:
 
@@ -3524,7 +3524,37 @@ These outputs are therefore suitable for selecting an optimal decision threshold
 
 ### 5. Threshold Tuning: Design and Rationale
 	
+#### 5.1 Overview
 
+#### 5.2 Rationale
+
+#### 5.3 Metric Optimisation Decisions
+
+maximise F1
+
+Meaning:
+	•	Balanced trade-off
+	•	No manual tuning
+	•	No arbitrary choices
+
+vs
+
+maximise precision subject to recall
+
+Meaning:
+	•	“I prioritise precision”
+	•	“But I refuse to let recall drop below X”
+
+Given your goal:
+
+“precision-first pipeline”
+
+You should use:
+
+Precision maximisation WITH recall constraint
+
+NOT pure precision
+NOT pure eyeballing
 
 
 ---
