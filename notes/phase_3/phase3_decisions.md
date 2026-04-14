@@ -3772,26 +3772,21 @@ This produces a precision-biased validation stage with bounded recall loss, resu
 
 ---
 
-### 8. Threshold Metrics Generation and Visualisation
+### 8. Threshold Metrics Generation and Visualisation Decisions
 
 #### 8.1 Metric Generation
 
-Threshold-dependent performance is evaluated using out-of-fold (OOF) predictions by computing classification metrics across a dense grid of thresholds.
-
-Implementation:
+Threshold-dependent performance is evaluated using the out-of-fold (OOF) predictions by computing classification metrics across a dense grid of thresholds:
 
 - Thresholds are defined over the range `[0, 1]` using 1001 evenly spaced values  
-  - Step size = 0.001  
+  - Step size = `0.001`  
 - For each threshold `t`:
   - Convert probabilities → binary predictions  
-  - Compute:
+  - Compute metrics:
     - Precision  
     - Recall  
     - F1-score  
-
-Output:
-
-- A complete metrics table (`threshold_metrics.csv`) containing:
+- This gives a complete metrics table containing:
   - `threshold`, `precision`, `recall`, `f1`  
 
 Design rationale:
@@ -3800,42 +3795,35 @@ Design rationale:
   - Produces smooth, continuous metric curves  
   - Enables fine-grained inspection of trade-offs  
   - Avoids missing optimal or near-optimal operating regions  
-
 - Use of OOF predictions:
   - Ensures all evaluations are out-of-sample  
   - Prevents optimistic bias in threshold behaviour  
 
-This table forms the **metric landscape** used for both visualisation and final threshold selection.
+This table forms the metric landscape used for both visualisation and final threshold selection.
 
 ---
 
 #### 8.2 Role of Visualisation
 
-Visualisations are used to **validate and interpret** the threshold–metric relationships, not to directly select the threshold.
-
-Purpose:
+Visualisations are used to validate and interpret the threshold–metric relationships, not to directly select the threshold. They serve several purposes:
 
 - Confirm expected model behaviour:
   - Precision increases with threshold  
   - Recall decreases with threshold  
-
 - Identify the structure of the trade-off:
   - Smooth vs unstable transitions  
   - Presence of usable operating regions  
-
 - Ensure the optimisation objective is feasible:
   - Existence of thresholds with improved precision  
   - Without catastrophic loss of recall  
 
-Visualisation therefore acts as a **sanity check and interpretability layer**, ensuring that the selected threshold (Section 7) is supported by the underlying metric behaviour.
+Visualisation therefore acts as a sanity check and interpretability layer, ensuring that the selected threshold is supported by the underlying metric behaviour.
 
 ---
 
 #### 8.3 Visualisation Types and Interpretation
 
 Three plots are generated from the threshold metrics:
-
----
 
 **1. Precision–Recall Curve**
 
@@ -3893,13 +3881,13 @@ Interpretation:
   - Where precision meaningfully improves  
   - Where recall degradation accelerates  
 
-This plot is most useful for verifying that the selected threshold lies within a **stable operating region**, rather than an extreme regime.
+This plot is most useful for verifying that the selected threshold lies within a stable operating region, rather than an extreme regime.
 
 ---
 
 #### 8.4 Connection to Threshold Selection
 
-The outputs of this stage support, but do not replace, the selection method defined in Section 7.
+The outputs of this stage support, but do not replace, the final threshold selection method defined in Section 7.
 
 - Threshold selection is performed numerically using the metrics table  
 - Visualisations are used to:
@@ -3913,90 +3901,905 @@ Together:
 - Visualisations → ensure the selection is justified and reliable  
 
 This separation maintains a clear distinction between:
-- **Decision rule (formal, reproducible)**  
-- **Interpretation (qualitative, diagnostic)**  
+
+- Decision rule (formal, reproducible)
+- Interpretation (qualitative, diagnostic) 
 
 ---
 
+### 8. Visualisation Output Interpretation
 
+#### 8.1 Precision–Recall Curve
 
+Observed behaviour:
 
-baseline_recall: 0.7039
-recall_min: 0.5983
-method: precision-max under recall constraint
-best_threshold: 0.5490
-
-Metrics at selected threshold:
-threshold    0.549000
-precision    0.724215
-recall       0.633333
-f1           0.675732
-
-Your output:
-	•	baseline recall: 0.7039
-	•	final recall: 0.6333 (~10% drop)
-	•	precision: 0.724
+- Smooth, continuous decline in precision as recall increases  
+- No abrupt drops or irregularities  
 
 Interpretation:
-	•	✔ recall preserved (within allowed range)
-	•	✔ precision improved
-	•	✔ validation acting as a filter
 
-This is precisely what the validation stage is supposed to do.
+- Indicates a stable trade-off between precision and recall  
+- Confirms the model produces meaningful probability rankings  
+- No evidence of pathological behaviour (e.g. sudden collapse in precision)  
 
-the pieline will now be precision focused because  the decision threshold is stricter. The system behaviour is precision-biased, even if the model itself is not.
+Implication:
 
-	•	High-recall extraction already captured most candidates
-	•	Validation removes:
-	•	false positives
-	•	some true positives (controlled loss)
-
-That trade-off is intentional.
-
-High-recall candidate extraction followed by precision-biased validation to produce high-confidence entities for downstream modelling
-
-
-
-
-
+- The model supports controlled adjustment of the decision boundary  
+- Precision gains can be achieved without unpredictable loss of recall  
 
 ---
 
-Final Model Evaluation (test set stage)
+#### 8.2 F1 vs Threshold**
 
-Purpose: reporting performance (this must include plots)
+Observed behaviour:
 
-After:
-	•	final training (on 1020)
-	•	threshold selected
+- F1 peaks at approximately `t ≈ 0.44` with `F1 ≈ 0.735`  
 
-Then evaluate on held-out test set
+Interpretation:
 
-Required plots:
+- This represents the point of optimal balance between precision and recall  
+- Serves as a reference operating point, not the final decision  
 
-1. Precision–Recall Curve (test set)
-	•	This is standard for imbalanced classification
-	•	More informative than ROC in your case
+Implication:
 
-⸻
-
-2. Confusion Matrix (at chosen threshold)
-Shows:
-	•	False negatives (critical)
-	•	False positives
-
-⸻
-
-Optional:
-
-ROC curve
-	•	Not essential unless required by convention
-
+- Thresholds below ~0.44 favour recall  
+- Thresholds above ~0.44 increasingly favour precision  
+- Confirms that moving to higher thresholds enables precision-oriented filtering  
 
 ---
 
+#### 8.3 Precision & Recall vs Threshold
+
+Observed behaviour:
+
+- **Recall**:
+  - Remains relatively stable until ~0.35–0.4  
+  - Gradually declines thereafter  
+  - Decline becomes steeper beyond ~0.6  
+
+- **Precision**:
+  - Begins improving from ~0.2  
+  - Increases more noticeably from ~0.4 onward  
+  - Continues to rise as threshold increases  
+
+Interpretation:
+
+- Clear monotonic trade-off:
+  - Increasing threshold → precision ↑, recall ↓  
+- A stable operating region exists between ~0.4–0.6:
+  - Precision improves meaningfully  
+  - Recall declines gradually (not abruptly)  
+
+Implication:
+
+- The model provides a usable range for precision-biased operation  
+- Extremely high thresholds (> ~0.6–0.7) lead to accelerated recall loss  
+- Moderate threshold increases enable improved precision without collapse in recall  
+
+---
+
+#### 8.4 Overall Interpretation
+
+Across all visualisations:
+
+- The model exhibits a well-behaved precision–recall trade-off  
+- No instability or degenerate regions are observed  
+- A valid operating region exists for precision-oriented thresholding  
+
+This confirms that:
+
+- The constraint-based selection method (Section 7) is appropriate  
+- The selected threshold lies within a stable region of the trade-off  
+- The model is suitable for use as a precision-biased validation filter  
+
+The visual analysis therefore supports the final design:
+
+- High-recall extraction  
+- Followed by controlled, precision-oriented validation  
+- Producing a high-confidence dataset for downstream modelling  
+
+---
+
+### 9. Final Threshold Selection and Interpretation
+
+#### 9.1 Selected Threshold Summary
+
+| Metric               | Baseline (t = 0.5) | Selected (t = 0.549)  |
+|----------------------|--------------------|-----------------------|
+| Precision            | 0.7025             | **0.7242**            |
+| Recall               | 0.7039             | 0.6333                |
+| F1 Score             | 0.7032             | 0.6757                |
+
+Constraint:
+
+- Minimum recall: `recall_min = 0.85 × baseline_recall = 0.85 × 0.7039 = 0.5983`
+- Selected recall (0.6333) satisfies this constraint  
+
+---
+
+#### 9.2 Quantitative Interpretation
+
+Effect of threshold increase (`0.5 → 0.549`):
+
+- **Precision increases**:
+  - +0.0217 (~3.1% relative improvement)   
+  - Indicates improved filtering of false positives  
+- **Recall decreases**:
+  - −0.0706 (~10.7% relative reduction)  
+  - Within the allowable degradation (≥ 0.5983)  
+- **F1 decreases**:
+  - −0.0275 (~3.9% relative reduction)
+  - Expected, as the system moves away from balanced optimisation  
+
+The model trades a controlled loss in recall for a measurable gain in precision  
+
+---
+
+#### 9.3 Pipeline-Level Effect
+
+The selected threshold alters system behaviour as follows:
+
+- The transformer applies stricter acceptance criteria (`t = 0.549`):
+  - Removes a larger proportion of false positives (reduced noise)
+  - Accepts a controlled loss of true positives to retain a majority (preserving signal)
+
+This behaviour is consistent with the pipeline design:
+
+- **Rule-based extraction (Stage 1):**
+  - Maintains high recall  
+  - Generates broad candidate coverage  
+
+- **Transformer validation (Stage 2):**
+  - Acts as a precision-biased filter
+  - Improves correctness of retained entities  
+
+Resulting system behaviour:
+
+- Precision is increased at the validation stage  
+- Recall is reduced, but within acceptable bounds  
+- The overall pipeline becomes precision-biased at the output level
+
+---
+
+#### 9.4 Final System Characterisation
+
+The final pipeline operates as:
+
+> High-recall candidate extraction → precision-biased validation → threshold-calibrated decision boundary  
+
+- Precision is increased  
+- Recall is preserved within a controlled bound  
+- The validation stage behaves as intended  
+
+This confirms that:
+
+- The threshold selection method is effective  
+- The pipeline achieves its intended precision-biased behaviour  
+- The resulting high-confidence entity dataset is optimised for downstream use (more than a balanced or recall-heavy output) 
+
+---
+
+### 10. Tune Threshold Workflow Implementation
+
+This logic is implemented in `tune_threshold.py` as follows:
+
+1. **Load OOF Predictions**
+  - Read `y_true` and `y_prob` from `oof_predictions.csv`  
+  - Ensure all predictions are out-of-sample  
+
+2. **Define Threshold Grid**
+  - Generate thresholds over `[0, 1]` using `np.linspace(0, 1, 1001)`  
+  - Provides high-resolution evaluation (step size = 0.001)  
+
+3. **Iterate Over Thresholds**
+  - For each threshold `t`:
+    - Convert probabilities → binary predictions:
+      - `y_pred = (y_prob ≥ t)`  
+    - Compute:
+      - Precision  
+      - Recall  
+      - F1-score  
+
+4. **Aggregate Metrics**
+  - Store results for each threshold in a list of dictionaries  
+  - Convert to a structured DataFrame (`metrics_df`)  
+
+5. **Save Metrics Table**
+  - Write full threshold–metric table to:
+    - `threshold_metrics.csv`  
+  - This serves as the complete metric landscape for downstream use  
+
+6. **Sanity Check Outputs**
+  - Print:
+    - Total number of thresholds evaluated  
+    - Min/max values for each metric  
+    - Top thresholds by F1 (for quick validation of model behaviour)  
+
+---
+
+### 11. Visualisation Workflow Implementation
+
+This logic is implemented in `tune_threshold_plots.py` as follows:
+
+1. **Load Threshold Metrics**
+  - Read `threshold_metrics.csv` into a DataFrame  
+  - Sort by `threshold` to ensure consistent curve progression  
+
+2. **Extract Metric Arrays**
+  - Extract columns as arrays:
+    - `thresholds`, `precision`, `recall`, `f1`  
+  - Enables efficient plotting of continuous curves  
+
+3. **Generate Precision–Recall Curve**
+  - Plot:
+    - X-axis → Recall  
+    - Y-axis → Precision  
+  - Visualises the global trade-off between precision and recall  
+  - Save as `pr_curve.png`  
+
+4. **Generate F1 vs Threshold Plot**
+  - Plot:
+    - X-axis → Threshold  
+    - Y-axis → F1-score  
+  - Identify F1-optimal point using `argmax()`  
+  - Annotate:
+    - Vertical line at optimal threshold  
+    - Horizontal line at peak F1  
+    - Marker at exact optimum  
+  - Provides reference for balanced model performance  
+  - Save as `f1_vs_threshold.png`  
+
+5. **Generate Precision & Recall vs Threshold Plot**
+  - Plot both metrics on the same axes:
+    - Precision vs Threshold  
+    - Recall vs Threshold  
+  - Highlights how each metric evolves as the decision boundary changes  
+  - Makes trade-offs explicit in threshold space  
+  - Save as `precision_recall_vs_threshold.png`  
+
+6. **Save Outputs**
+  - All plots saved to: `results/threshold_tuning/plots/`  
+  - Ensures reproducible and reusable visual analysis  
+
+7. **Confirm Completion**
+  - Print output directory path for verification  
+
+---
+
+### 12. Select Threshold Workflow Implementation
+
+This logic is implemented in `select_threshold.py` as follows:
+
+1. **Load Precomputed Metrics**
+  - Read `threshold_metrics.csv` containing threshold–metric evaluations  
+  - All metrics are derived from OOF predictions (no leakage)  
+
+2. **Extract Baseline Operating Point**
+  - Locate row where `threshold = 0.5`  
+  - Extract:
+    - `baseline_recall`  
+    - `baseline_precision`  
+    - `baseline_f1`  
+  - Serves as the reference model performance  
+
+3. **Define Recall Constraint**
+  - Compute minimum acceptable recall: `recall_min = 0.85 × baseline_recall`  
+  - Encodes allowable degradation (≤ 15% loss)  
+
+4. **Filter Valid Thresholds**
+  - Subset rows where: `recall ≥ recall_min`  
+   - Defines feasible operating region  
+
+5. **Select Optimal Threshold**
+  - Primary selection:
+    - Choose row with maximum precision within valid set  
+    - Implemented via: `idxmax()` → index of highest precision  
+  - Fallback:
+    - If no valid thresholds exist → select max F1  
+
+6. **Extract Selected Metrics**
+  - From `best_row`, retrieve:
+    - `threshold`  
+    - `precision`  
+    - `recall`  
+    - `f1`  
+
+7. **Save Selection Output**
+  - Write results to `best_threshold.json`:
+    - Selected threshold and associated metrics  
+    - Baseline metrics  
+    - Recall constraint  
+    - Selection method  
+
+8. **Print Summary (Auditability)**
+  - Output:
+    - Baseline metrics  
+    - Recall constraint  
+    - Selection method  
+    - Final threshold  
+    - Metrics at selected threshold  
+
+---
+
+## Final Model Training
+
+### 1. Objective
+
+Train the final transformer validation model on the full training dataset (n = 1020 entities) using the selected hyperparameters and calibrated decision threshold.
+
+This step consolidates all prior components of the pipeline:
+
+- Optimised model configuration (hyperparameter tuning)  
+- Unbiased training strategy (cross-validation design)  
+- Calibrated decision policy (threshold selection)  
+
+The resulting model represents the final validation component of the pipeline and is:
+
+- Fixed for subsequent evaluation on the held-out test set  
+- Used to generate final performance metrics and comparisons  
+
+This stage does not involve further optimisation or tuning, it produces the definitive model whose behaviour will be assessed in Phase 4 Evaluation.
+
+---
+
+### 2. Model Architecture
+
+#### 2.1 Conceptual Overview
+
+The validation model is based on:
+
+- Model: Bio_ClinicalBERT (`emilyalsentzer/Bio_ClinicalBERT`)
+- Task: Binary sequence classification (`is_valid ∈ {0,1}`)
+
+Architecture components:
+
+- **Pretrained encoder**:
+  - BERT-based transformer pretrained on clinical text  
+  - Produces contextualised token embeddings  
+  - Uses the `[CLS]` token representation as the aggregate sequence embedding
+- **Classification head**:
+  - Fully connected linear layer: `hidden_size → 2 logits`  
+  - Outputs unnormalised scores for each class (`valid`, `invalid`)  
+  - Softmax applied during inference to obtain probabilities
+
+Forward pass:
+
+1. Tokenised input sequence is passed into the BERT encoder  
+2. Contextual embeddings are computed across all tokens  
+3. `[CLS]` embedding is extracted as the sequence representation  
+4. Classification head maps embedding → logits  
+5. Softmax converts logits → probabilities `p(y = 0), p(y = 1)`  
+
+Key properties:
+
+- Learns contextual relationships between entity, metadata, and sentence context  
+- Leverages domain-specific pretraining for clinical language understanding  
+- Produces calibrated probability estimates used for downstream thresholding  
+- Separates **representation learning (encoder)** from **decision mapping (classifier head)**  
+
+---
+
+#### 2.2 Architecture Diagram
+
+```text
+                  ┌────────────────────────────────────────────┐
+                  │            Structured Inputs               │
+                  ├────────────────────────────────────────────┤
+                  │ SECTION          → categorical context     │
+                  │ ENTITY TYPE      → entity class            │
+                  │ ENTITY           → extracted span          │
+                  │ CONCEPT          → semantic label          │
+                  │ TASK             → validation objective    │
+                  │ TEXT             → full sentence context   │
+                  └────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │        Input Serialisation (Prompt Construction)             │
+          │ [SECTION] ... [ENTITY TYPE] ... [ENTITY] ... [TEXT] ...      │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │                  Tokenisation Layer                          │
+          │ Bio_ClinicalBERT Tokenizer                                   │
+          │ → input_ids (vocab_size = 28,996)                            │
+          │ → attention_mask                                             │
+          │ → token_type_ids (type_vocab_size = 2)                       │
+          │ → max_length = 512                                           │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │                 Embedding Layer                              │
+          │ Token + Positional + Segment Embeddings                      │
+          │ hidden_size = 768                                            │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │              Transformer Encoder (12 Layers)                 │
+          │                                                              │
+          │ Each layer contains:                                         │
+          │   • Multi-head self-attention (12 heads, dim=64 each)        │
+          │   • Feed-forward network (768 → 3072 → 768)                  │
+          │   • GELU activation                                          │
+          │   • Dropout (0.1)                                            │
+          │   • Residual connections + LayerNorm                         │
+          │                                                              │
+          │ Output: contextualised token representations                 │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │     Sequence Representation ([CLS] final hidden state)       │
+          │ 768-dimensional contextual embedding                         │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │                Classification Head                           │
+          │ Linear layer: 768 → 2 logits                                 │
+          │ (task-specific, randomly initialised, trained during         │
+          │  fine-tuning)                                                │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │                 Probability Output                           │
+          │ Softmax → p(valid), p(invalid)                               │
+          └──────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+          ┌──────────────────────────────────────────────────────────────┐
+          │           External Threshold Decision Policy                 │
+          │ Precision-maximisation under recall constraint               │
+          │ (recall ≥ 0.85 × baseline)                                   │
+          └──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 3. Input Representation and Tokenisation
+
+Each sample is transformed into a structured text sequence:
+
+```python
+[SECTION] ... [ENTITY TYPE] ... [ENTITY] ... [CONCEPT] ... [TASK] ... [TEXT] ...
+```
+
+Design rationale:
+
+-	Encodes structured metadata explicitly into a single sequence
+-	Preserves relationships between entity, context, and task
+-	Enables the model to perform joint reasoning over all inputs
+-	Avoids separate feature engineering by leveraging contextual embeddings
+
+Tokenisation:
+
+- Performed using the model-specific tokenizer:
+  - `AutoTokenizer.from_pretrained("emilyalsentzer/Bio_ClinicalBERT")`
+- Each sequence is converted into:
+	-	`input_ids` (token indices)
+	-	`attention_mask` (padding mask)
+	-	`token_type_ids` (segment embeddings, handled internally)
+- Configuration:
+	- `max_length = 512`
+	- Truncation enabled
+	- Padding to fixed length `(padding="max_length")`
+
+Rationale for `max_length = 512`:
+
+-	Maximum sequence length supported by BERT
+- Captures full sentence context without truncation for most samples
+-	Preserves full input structure across all fields
+-	Ensures consistent tensor shapes for batch processing
+-	Avoids variable-length batching complexity
+
+---
+
+### 4. Dataset Transformation
+
+The dataset is prepared as follows:
+
+1. Load full training dataset
+2. Convert boolean labels (`is_valid`) → binary labels (0/1)
+3. Convert pandas DataFrame → Hugging Face `Dataset`
+4. Remove automatically generated index column (if present)  
+5. Apply tokenisation using `.map()` (batched processing)  
+6. Remove original text columns after encoding  
+7. Set format to PyTorch tensors for compatibility with the `Trainer` API  
+
+Final dataset contains:
+
+- `input_ids` → token indices  
+- `attention_mask` → padding mask  
+- `label` → binary target (0/1)  
+
+Note:
+
+- `token_type_ids` are part of the BERT architecture but are not explicitly used in this implementation, as inputs are represented as a single sequence. When not provided, they default to zeros and do not affect model behaviour.
+- All inputs are converted into fixed-length numerical tensors (`max_length = 512`)  
+
+This produces a fully numerical representation suitable for transformer training.
+
+---
+
+### 5. Training Configuration
+
+The final model is trained using the hyperparameters selected during the tuning phase. These parameters define optimisation dynamics, convergence behaviour, and generalisation control.
+
+#### 5.1 Hyperparameter Configuration
+
+| Hyperparameter              | Value   | Role                                                      | Rationale                                                                 |
+|----------------------------|---------|------------------------------------------------------------|---------------------------------------------------------------------------|
+| Learning rate              | 3e-6    | Peak step size for weight updates                          | Low learning rate required for stable fine-tuning of pretrained BERT      |
+| Batch size (per device)    | 8       | Samples per forward/backward pass                          | Constrained by GPU memory while maintaining stable gradients              |
+| Gradient accumulation      | 2       | Accumulates gradients across steps                         | Effective batch size = 16 without increasing memory usage                 |
+| Epochs                     | 5       | Full passes over dataset                                   | Empirically sufficient for convergence without overfitting                |
+| Weight decay               | 0.05    | L2 regularisation (AdamW) factor                           | Reduces overfitting and improves generalisation by penalising large weights |
+| Warmup ratio               | 0.1     | Fraction of steps used for LR warmup                       | Stabilises early training dynamics in transformer fine-tuning             |
+| Max gradient norm          | 1.0     | Gradient clipping threshold                                | Prevents exploding gradients and ensures numerical stability              |
+| LR scheduler               | Linear  | Step-wise LR schedule (warmup → decay)                     | Ensures smooth convergence and stable optimisation trajectory             |
+
+---
+
+#### 5.2 Optimisation Strategy
+
+- Training performed on full dataset (n = 1020; no validation split)  
+- Cross-validation used only during tuning phase  
+- Optimisation via **AdamW** (decoupled weight decay of 0.05)  
+- Learning rate updated **per optimiser step** (not per epoch)  
+- Gradient accumulation used to simulate larger batch training  
+- Gradient clipping applied before each parameter update   
+
+---
+
+#### 5.3 Learning Rate Scheduling
+
+The learning rate follows a step-based schedule combining linear warmup and linear decay:
+
+- **Warmup phase:**
+  - Warmup ratio = 0.1 → first 10% of total optimisation steps
+  - Learning rate increases linearly from near 0 → 3e-6  
+- **Decay phase (remaining steps):**
+  - Learning rate decreases linearly from 3e-6 → ~0  
+
+Key properties:
+
+- Learning rate is not constant
+- It is updated at every optimiser step
+- It depends on global training step, not epoch index
+- The same optimisation procedure (including AdamW updates and weight decay) is applied throughout both phases
+
+This schedule mitigates instability during early training and enables controlled convergence during later stages of optimisation.
+
+---
+
+#### 5.4 Design Rationale
+
+- **Separation of optimisation and evaluation**  
+  - Hyperparameters fixed after cross-validation  
+  - Final training avoids further tuning to prevent bias  
+- **Stable fine-tuning of pretrained transformers**  
+  - Low learning rate prevents disruption of pretrained representations  
+  - Warmup avoids unstable gradient updates in early steps  
+- **Effective batch scaling under memory constraints**  
+  - Batch size limited by hardware (8 samples)  
+  - Gradient accumulation increases effective batch size (16)  
+  - Improves gradient estimation without additional memory cost  
+- **Controlled optimisation dynamics**  
+  - AdamW provides adaptive updates with decoupled regularisation  
+  - Gradient clipping prevents exploding gradients  
+  - Linear decay reduces step size as training converges  
+- **Generalisation control**  
+  - Weight decay regularises model parameters  
+  - Limited number of epochs prevents overfitting on small dataset  
+
+This configuration reflects a balance between optimisation stability, efficient data utilisation, and controlled generalisation in a low-data clinical setting.
+
+---
+
+### 6. Training Procedure
+
+#### 6.1 Hugging Face `Trainer`
+
+Training is executed using the Hugging Face `Trainer` API which encapsulates:
+
+- Data batching and shuffling
+- Forward/backward pass execution
+- Gradient accumulation logic
+- Optimiser step execution
+- Learning rate scheduling
+- Logging
+
+In this implementation:
+
+- No evaluation loop is executed (`eval_strategy = "no"`)
+- No checkpoint saving is performed (`save_strategy = "no"`)
+
+Thus, the `Trainer` acts purely as a **deterministic optimisation engine**.
+
+---
+
+#### 6.2 Training Loop
+
+The training process is structured into three nested execution levels:
+
+- Epoch level (full dataset traversal)
+- Batch level (forward and backward computation)
+- Optimisation step level (parameter update triggered by gradient accumulation)
+
+Training characteristics:
+
+- Fully supervised learning
+- Deterministic execution (fixed random seeds)
+- No validation or evaluation during training
+- Fixed hyperparameters (no adaptive tuning)
+- Optimisation performed solely on training data
+
+---
+
+#### 6.3 Epoch-Level Computation
 
 
-error analysis - post hoc analysis
+For each epoch:
 
-ablation study - post hoc analysis
+1. The dataset is shuffled (deterministically via seed)
+2. The dataset is partitioned into mini-batches (`batch_size = 8`)
+3. Each batch is processed sequentially
+4. After every `gradient_accumulation_steps = 2` batches:
+  - A single optimiser update is triggered
+
+Effective behaviour:
+
+- 1 epoch = full pass over 1020 samples
+- Gradients are accumulated over 2 batches (effective batch size = 16)
+- Approximate optimiser updates per epoch:
+  1020 / 16 ≈ 63 updates
+
+---
+
+#### 6.4 Batch-Level Computation
+
+For each batch:
+
+1. **Forward pass:**
+  - Tokenised input → BERT encoder → logits (2-class output)
+2. **Loss computation:**
+  - Cross-entropy loss against ground truth labels
+3. **Backward pass:**
+  - Gradients computed via backpropagation
+4. **Gradient accumulation:**
+  - Gradients are accumulated across steps instead of being applied immediately
+5. **Conditional optimisation step (checked every batch)**
+  - If accumulation condition is met (`gradient_accumulation_steps = 2`):
+    - Gradient clipping is applied (`max_norm = 1.0`)
+    - AdamW updates model parameters (`weight_decay = 0.05`)
+    - Learning rate scheduler updates learning rate based on global step (warmup → decay)
+    - Gradients are reset (zeroed)
+
+---
+
+#### 6.5 Training Workflow
+
+```text
+          ┌──────────────────────────────────────────────────────────────────────────────┐
+          │                          TRAINING CONFIGURATION                              │
+          │                                                                              │
+          │  epochs               = 5                                                    │
+          │  batch_size           = 8                                                    │
+          │  grad_accum           = 2                                                    │
+          │  learning_rate        = 3e-6                                                 │
+          │  weight_decay         = 0.05                                                 │
+          │  warmup_ratio         = 0.1                                                  │
+          │  max_grad_norm        = 1.0                                                  │
+          │  lr_scheduler         = linear                                               │
+          │                                                                              │
+          │  Defines optimisation hyperparameters (static during training)               │
+          └──────────────────────────────────────────────────────────────────────────────┘
+                                                │
+                                                ▼
+          ┌──────────────────────────────────────────────────────────────────────────────┐
+          │                     TRAINING PROCESS (Hugging Face Trainer)                  │
+          │                                                                              │
+          │  Optimisation = repeated nested execution over epochs → batches → steps      │
+          └──────────────────────────────────────────────────────────────────────────────┘
+                                                │
+                                                ▼
+          ┌──────────────────────────────────────────────────────────────────────────────┐
+          │                           EPOCH LOOP (×5)                                    │
+          │                                                                              │
+          │  for epoch in range(num_epochs)                                              │
+          │                                                                              │
+          │  ┌────────────────────────────────────────────────────────────────────────┐  │
+          │  │                      SHUFFLED TRAINING DATASET                         │  │
+          │  │                (deterministic seed-controlled order)                   │  │
+          │  └────────────────────────────────────────────────────────────────────────┘  │
+          │                                     │                                        │
+          │                                     ▼                                        │
+          │  ┌────────────────────────────────────────────────────────────────────────┐  │
+          │  │                            BATCH LOOP                                  │  │
+          │  │                                                                        │  │
+          │  │        batch_size = 8 (samples per forward/backward pass)              │  │
+          │  │                                                                        │  │
+          │  │    ┌──────────────────────────────────────────────────────────────┐    │  │
+          │  │    │          FORWARD–BACKWARD STEP (batch i)                     │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  [FORWARD PASS]                                              │    │  │
+          │  │    │  Input → Token IDs → BERT Encoder → logits                   │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  [LOSS COMPUTATION]                                          │    │  │
+          │  │    │  loss = CrossEntropy(logits, label)                          │    │  │
+          │  │    │  loss scaled for gradient accumulation (internal)            │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  [BACKWARD PASS]                                             │    │  │
+          │  │    │  backward() → gradients stored in parameter buffers          │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  (no parameter update yet)                                   │    │  │
+          │  │    └──────────────────────────────────────────────────────────────┘    │  │
+          │  │                                  │                                     │  │
+          │  │    ┌──────────────────────────────────────────────────────────────┐    │  │
+          │  │    │              FORWARD–BACKWARD STEP (batch i+1)               │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  [FORWARD PASS]                                              │    │  │
+          │  │    │  Input → Token IDs → BERT Encoder → logits                   │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  [LOSS COMPUTATION]                                          │    │  │
+          │  │    │  loss = CrossEntropy(logits, label)                          │    │  │
+          │  │    │  loss scaled for gradient accumulation (internal)            │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  [BACKWARD PASS]                                             │    │  │
+          │  │    │  backward() → gradients accumulated (summed)                 │    │  │
+          │  │    │                                                              │    │  │
+          │  │    │  (accumulation step reached → ready for update)              │    │  │
+          │  │    └──────────────────────────────────────────────────────────────┘    │  │
+          │  │                                  │                                     │  │
+          │  │                                  ▼                                     │  │
+          │  │       ┌────────────────────────────────────────────────────────┐       │  │
+          │  │       │          ACCUMULATION STATE (grad_accum = 2)           │       │  │
+          │  │       │                                                        │       │  │
+          │  │       │  effective batch size = 16                             │       │  │
+          │  │       │  gradients represent sum over 2 batches                │       │  │
+          │  │       └────────────────────────────────────────────────────────┘       │  │
+          │  │                                  │                                     │  │
+          │  │                                  ▼                                     │  │
+          │  │       ┌────────────────────────────────────────────────────────┐       │  │
+          │  │       │            OPTIMISER UPDATE STEP                       │       │  │
+          │  │       │                                                        │       │  │
+          │  │       │  1. Gradient clipping (max_norm = 1.0)                 │       │  │
+          │  │       │  2. AdamW parameter update (weight_decay = 0.05)       │       │  │
+          │  │       │  3. LR scheduler step (global step-based)              │       │  │
+          │  │       │                                                        │       │  │
+          │  │       │     warmup (10%) → linear LR increase to 3e-6          │       │  │
+          │  │       │     decay → linear LR decrease to ~0                   │       │  │
+          │  │       │                                                        │       │  │
+          │  │       │  Model parameters updated in-place                     │       │  │
+          │  │       └────────────────────────────────────────────────────────┘       │  │
+          │  │                                  │                                     │  │
+          │  │                                  ▼                                     │  │
+          │  │       ┌────────────────────────────────────────────────────────┐       │  │
+          │  │       │         GRADIENT RESET (zero_grad)                     │       │  │
+          │  │       │                                                        │       │  │
+          │  │       │  Gradient buffers cleared for next accumulation cycle  │       │  │
+          │  │       └────────────────────────────────────────────────────────┘       │  │
+          │  │                                                                        │  │
+          │  └────────────────────────────────────────────────────────────────────────┘  │
+          │                                                                              │
+          └──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 7. Model Outputs
+
+Model files:
+
+- `model.safetensors` → Trained model weights (secure and memory-efficient format)
+- `config.json` → Model architecture configuration (e.g., hidden size, number of layers, label mapping)
+
+Tokenizer files:
+
+- `vocab.txt` → Token vocabulary used for mapping tokens → IDs
+- `tokenizer.json` → Full tokenizer specification (tokenisation rules, merges, normalisation)
+- `tokenizer_config.json` → Tokenizer settings (e.g., max length, padding/truncation behaviour)
+- `special_tokens_map.json` → Definitions of special tokens (e.g., `[CLS]`, `[SEP]`, `[PAD]`)
+
+Training metadata:
+
+- `training_args.bin` → Serialized training configuration from the `Trainer` API (hyperparameters, scheduling, etc.)
+
+---
+
+#### 7.4 Functional Role
+
+These artefacts collectively define a fully self-contained model package. They are sufficient for:
+
+- Reproducible inference → Identical preprocessing (tokenisation) and model behaviour
+- Deployment → Direct loading via:
+  ```python
+  AutoModelForSequenceClassification.from_pretrained(path)
+  AutoTokenizer.from_pretrained(path)
+  ```
+
+---
+
+### 8. Workflow Implementation
+
+The training workflow is implemented in `train_final_model.py` as follows:
+
+1. **Reproducibility initialisation**  
+  - Set deterministic seeds across `random`, `numpy`, and `torch`  
+  - Configure CuDNN for deterministic behaviour  
+  - Ensures identical results across runs
+
+2. **Configuration setup**  
+  - Define dataset path, pretrained model (`Bio_ClinicalBERT`), and output directory  
+  - Specify maximum sequence length (`max_length = 512`)  
+  - Define tuned hyperparameters (learning rate, batch size, epochs, etc.)
+
+3. **Data loading and label preparation**  
+  - Load full training dataset (`n = 1020`) from CSV  
+  - Convert `is_valid` → integer labels (`0/1`) for classification compatibility  
+
+4. **Tokenizer initialisation**  
+  - Load model-specific tokenizer via `AutoTokenizer.from_pretrained()`  
+  - Ensures consistency with pretrained embedding space  
+
+5. **Input construction and tokenisation**  
+  - Serialize structured fields into a single input sequence:  
+     ```python
+     [SECTION] ... [ENTITY TYPE] ... [ENTITY] ... [CONCEPT] ... [TASK] ... [TEXT] ...
+     ```
+  - Apply tokenisation with:
+    - Truncation enabled  
+    - Fixed padding (`max_length = 512`)  
+  - Outputs: `input_ids`, `attention_mask`
+
+6. **Dataset transformation**  
+  - Convert pandas DataFrame → Hugging Face `Dataset`  
+  - Apply tokenisation via `.map()` (batched processing)  
+  - Remove raw text columns after encoding  
+  - Format dataset as PyTorch tensors:
+    - `input_ids`  
+    - `attention_mask`  
+    - `label`
+
+7. **Training configuration (Trainer API)**  
+  - Define `TrainingArguments` with tuned hyperparameters  
+  - Key settings:
+    - No evaluation (`eval_strategy = "no"`)  
+    - No checkpoint saving (`save_strategy = "no"`)  
+    - Linear learning rate scheduler with warmup  
+    - Gradient accumulation (`grad_accum = 2`)  
+    - Gradient clipping (`max_grad_norm = 1.0`)  
+
+8. **Model initialisation**  
+  - Load pretrained `Bio_ClinicalBERT` model  
+  - Attach classification head (`num_labels = 2`)  
+  - Instantiate `Trainer` with:
+    - Model  
+    - Training arguments  
+    - Tokenised dataset  
+    - Tokenizer  
+
+9. **Model training**  
+  - Execute training via `trainer.train()`  
+  - Performs full optimisation loop:
+    - Forward pass → loss computation → backward pass  
+    - Gradient accumulation → optimiser updates → LR scheduling  
+  - No validation or intermediate evaluation performed  
+
+10. **Model saving**  
+  - Save final model using `trainer.save_model(OUTPUT_DIR)`  
+  - Automatically includes:
+    - Model weights (`model.safetensors`)  
+    - Model configuration (`config.json`)  
+    - Tokenizer files  
+    - Training arguments (`training_args.bin`)  
+
+11. **Final output**  
+    - A fully self-contained, deployment-ready model directory: `models/bioclinicalbert_final/`
+    - Compatible with direct loading for inference and evaluation  
+
+---
