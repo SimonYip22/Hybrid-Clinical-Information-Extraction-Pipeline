@@ -2,26 +2,172 @@
 
 ## Objective
 
-This phase defines the evaluation framework decisions for assessing the final trained model and overall pipeline performance on a fully held-out test set, covering:
+This phase defines the evaluation framework used to assess both the trained transformer model and the overall extraction pipeline on a fully held-out test set (n = 180). This phase evaluates:
 
-- Comparison of rule-based extraction and transformer validation against ground truth  
-- Computation of core performance metrics (precision, recall, F1, accuracy)  
-- Analysis of pipeline-level improvement introduced by the transformer  
-- Stratified evaluation across entity types  
-- Visualisations to illustrate performance and error patterns
+- Baseline rule-based extraction vs ground truth  
+- Transformer validation vs ground truth  
+- Net improvement introduced by the transformer layer  
+- Precision–recall trade-offs under fixed thresholding  
+- Performance variation across entity types  
 
-The objective is to determine whether the transformer functions effectively as a precision-oriented validation layer, improving correctness over the rule-based baseline while maintaining acceptable recall.
-
-This phase produces the final performance estimates used for evaluation and deployment readiness.
+The goal is to verify that the transformer operates as a precision-oriented validation layer, improving correctness over a high-recall extraction baseline, ready for deployment in the full ICU corpus.
 
 ---
 
+## Evaluation Metrics Dataset 
 
+### 1. Objective
 
+Evaluation is based on constructing a single unified dataset where all prediction sources are aligned at the entity level. Each row corresponds to one candidate entity and contains:
 
+- Ground truth label
+- Rule-based prediction
+- Transformer prediction (probability + thresholded output)
 
+This dataset is the foundation for all evaluation, enabling:
 
+- Metric computation (precision, recall, F1, accuracy)
+- Confusion matrix analysis
+- Rule vs transformer comparison
+- Threshold-dependent analysis (PR/ROC curves)
+- Stratified analysis by entity type
 
+No metrics are computed during this stage, this step strictly produces the evaluation-ready dataset which can derive metrics downstream. This separation ensures reproducibility and flexibility in analysis.
+
+---
+
+### 2. Evaluation Components
+
+#### 2.1 Ground Truth
+
+- Source: manually annotated test set (n = 180)
+- Label: `is_valid → y_true ∈ {0,1}`
+
+This represents the only unbiased reference and is used to evaluate all systems.
+
+---
+
+#### 2.2 Rule-Based Predictions
+
+The rule-based system represents the high-recall extraction baseline.
+
+- All extracted entities are assumed valid (1)  
+- Exception: **SYMPTOM entities**
+  - `negated = True → 0 (invalid)`
+  - `negated = False → 1 (valid)`
+
+Rationale:
+
+- The extraction stage prioritises recall (capture everything) as rule-based methoda are limited in precision due to semantic ambiguity and lack of context understanding
+- Minimal precision logic is applied only where trivial and high-impact (negation of symptoms)
+- This creates a weak but acceptable baseline, allowing measurement of transformer improvement
+
+---
+
+#### 2.3 Transformer Predictions
+
+The transformer acts as a validation layer applied after extraction.
+
+For each entity:
+
+- Outputs logits → converted to probability: `model_prob = p(y = 1)`
+- Applies tuned threshold: `model_pred = (model_prob ≥ 0.549)`
+
+Key properties:
+
+- This is the first use of the tuned threshold
+- These predictions represent the final pipeline output and are directly compared to ground truth for performance evaluation
+- The model is explicitly precision-oriented to improve correctness compared to the rule-based baseline, so we expect:
+  - Precision ↑ (fewer false positives)
+  - Recall ↓ (some true positives removed)
+
+---
+
+### 3. Dataset Design
+
+Each row represents one extracted entity and aligns:
+
+| Column        | Description |
+|--------------|-------------|
+| `entity_type` | Entity category (for stratified analysis) |
+| `y_true`      | Ground truth label (manual annotation) |
+| `rule_pred`   | Rule-based prediction |
+| `model_prob`  | Transformer probability (p(y=1)) |
+| `model_pred`  | Final transformer prediction (thresholded) |
+
+Design rationale:
+
+- **Single-table design:** Ensures all systems are evaluated against the same reference `y_true` without recomputation
+- **model_prob retained:** Required for PR curves, ROC analysis, and threshold sensitivity (these cannot be derived from binary outputs)
+- **model_pred included:** Represents the actual deployed decision rule as the final output of the pipeline
+- **entity_type included:** Enables analysis of where the pipeline performs well or poorly (entity-type stratification)
+- **Separation of concerns:** This dataset is purely for evaluation. No metrics are computed here, which is reserved for the next step (plots and analysis). This allows for flexible analysis and reproducibility.
+
+---
+
+### 4. Workflow Implementation
+
+All script code and logic is implemented in `run_evaluation.py` with these steps:
+
+1. **Initialise environment**
+  - Select computation device:
+    - GPU if available, otherwise CPU
+  - Defines execution context for inference
+
+2. **Load test dataset**
+  - Read held-out test set (n = 180)
+  - Define ground truth:
+    - `y_true = is_valid` (binary labels)
+
+3. **Compute rule-based predictions**
+  - Apply deterministic extraction logic:
+    - `SYMPTOM`: validity determined by `negated` (0 if negated, 1 if not)
+    - All other entity types: assumed valid (1)
+  - Output baseline:
+    - `rule_pred ∈ {0,1}`
+
+4. **Load trained model and tokenizer**
+  - Load final model weights from `bioclinicalbert_final/`
+  - Load corresponding tokenizer (ensures identical token mapping)
+  - Move model to selected device
+  - Set `model.eval()`:
+    - Disables dropout
+    - Ensures deterministic inference
+
+5. **Reconstruct model inputs**
+  - Concatenate structured fields into a single string:
+    - `[SECTION] ... [ENTITY TYPE] ... [ENTITY] ... [CONCEPT] ... [TASK] ... [TEXT] ...`
+  - Matches training-time input format exactly
+
+6. **Tokenise inputs**
+  - Convert text → token IDs + attention masks
+  - Apply:
+    - truncation (`max_length = 512`)
+	- dynamic padding (batch-level)
+  - Output: tensors aligned with model input requirements
+
+7. **Run batched inference**
+  - Iterate over dataset in fixed-size batches
+  - Move inputs to same device as model
+  - Forward pass only (`torch.no_grad()`): inputs → model → logits
+  - Convert logits → probabilities (retain only class 1): `model_prob = softmax(logits, dim=1)[:, 1]`
+
+8. **Apply threshold**
+  - Convert probabilities to binary predictions:
+    - `model_pred = 1 if model_prob ≥ 0.549 else 0`
+  - Threshold fixed from prior tuning phase
+
+9. **Construct evaluation dataset**
+  - Combine all components into a single table:
+    - `entity_type`
+    - `y_true`
+    - `rule_pred`
+    - `model_prob`
+    - `model_pred`
+
+10. **Save output**
+   - Write dataset to: `outputs/evaluation/pipeline_predictions.csv`
+   - This file serves as the single source for all downstream evaluation
 
 ---
 
@@ -59,7 +205,7 @@ You must validate global behaviour first before deeper analysis.
 
 ### 1.1 Ground Truth
 
-- Source: **manually annotated test set (n = 90)**
+- Source: **manually annotated test set (n = 180)**
 - Each entity contains:
   - `is_valid` (ground truth label)
 
