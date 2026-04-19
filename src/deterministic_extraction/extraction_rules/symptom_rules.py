@@ -40,20 +40,6 @@ import re
 # For sentence splitting and tokenization
 from deterministic_extraction.sentence_segmentation import split_into_sentences
 
-
-# Ensures NLTK resources are available for sentence splitting
-import nltk
-
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt_tab')
-
 # ------------------------------------------------------------
 # 1. CONFIG
 # ------------------------------------------------------------
