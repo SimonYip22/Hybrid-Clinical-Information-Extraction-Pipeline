@@ -208,15 +208,27 @@ The pipeline distinguishes between three categories of fields: synthetic identif
 
 **A. Synthetic Note Identifier**
 
-A unique `note_id` is generated during batch processing:
+A unique `note_id` is required to track the relationship between source clinical notes and extracted entity-level outputs.
 
-- Created using row enumeration (`note_1`, `note_2`, ...)
-- Not present in the original dataset
-- Required because:
-  - One clinical note produces multiple entity-level outputs
-  - The pipeline output is flattened (one entity per record)
+Design approach:
 
-This ensures all extracted entities can be traced back to their originating note.
+- `note_id` is not generated within the extraction module
+- It is instead created externally in the orchestration layer and passed as an argument to the extraction functions
+- The extraction functions expect `note_id` to be provided as part of the input DataFrame
+
+Rationale:
+
+- One clinical note produces multiple entity-level outputs
+- The pipeline output is flattened (one entity per record)
+- A stable identifier is required to link entities back to their source note
+
+This separation ensures:
+
+- Correctness under chunked processing (no ID resets across batches)
+- Deterministic and reproducible identifiers
+- Clear separation of responsibilities:
+    - Orchestration layer → assigns identity
+    - Extraction layer → transforms data
 
 ---
 
@@ -263,7 +275,8 @@ This approach ensures:
 - Flexibility across different input types  
 - Consistent schema regardless of input structure  
 - Preservation of contextual information for downstream modelling  
-- Elimination of branching logic between dataset and deployment scenarios  
+- Correct handling of large-scale datasets via external identifier management
+- Clear separation between data identity and data transformation
 
 ---
 
