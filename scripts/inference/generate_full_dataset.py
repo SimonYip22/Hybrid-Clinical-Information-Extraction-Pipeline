@@ -1,10 +1,13 @@
 """
-run_full_dataset.py
+generate_full_dataset.py
 
 Purpose:
     Generate a large-scale structured dataset by applying the full pipeline
     (extraction + validation) to the ICU corpus.
 
+Bash command:
+    PYTHONPATH=src python scripts/inference/generate_full_dataset.py
+    
 Workflow:
     1. Load pretrained transformer model and tokenizer
     2. Stream ICU dataset in chunks to manage memory
@@ -12,9 +15,10 @@ Workflow:
     4. Write entity-level outputs incrementally to disk (JSONL)
 
 Outputs:
-    JSONL file containing one entity per line:
-        - Structured entity fields
-        - Validation results (confidence, is_valid)
+    outputs/datasets/icu_entities_full.jsonl (JSONL)
+        - JSONL file containing one entity per line:
+            - Structured entity fields
+            - Validation results (confidence, is_valid)
 
 Notes:
     - Uses chunked processing for scalability and memory safety
@@ -37,7 +41,7 @@ from pipeline.pipeline import run_pipeline
 DATA_PATH = "data/processed/icu_corpus.csv"
 MODEL_DIR = "models/bioclinicalbert_final"
 
-OUTPUT_PATH = Path("outputs/datasets/full_entities.jsonl")
+OUTPUT_PATH = Path("outputs/datasets/icu_entities_full.jsonl")
 OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 CHUNK_SIZE = 1000
@@ -54,6 +58,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
 
 model.to(DEVICE)
+model.eval()
 
 # -------------------------
 # PROCESS DATA IN CHUNKS
@@ -61,7 +66,7 @@ model.to(DEVICE)
 
 with open(OUTPUT_PATH, "w") as f_out:
 
-    for chunk in tqdm(pd.read_csv(DATA_PATH, chunksize=CHUNK_SIZE)):
+    for chunk in tqdm(pd.read_csv(DATA_PATH, chunksize=CHUNK_SIZE, usecols=["TEXT", "SUBJECT_ID", "HADM_ID", "ICUSTAY_ID"])):
             
             entities = run_pipeline(
                 df=chunk,
@@ -73,6 +78,7 @@ with open(OUTPUT_PATH, "w") as f_out:
             )
 
             for entity in entities:
+                # Convert NumPy scalar floats to standard Python float for JSON-compatibility
                 f_out.write(json.dumps(entity, default=float) + "\n")
 
 print(f"\nSaved full dataset to: {OUTPUT_PATH}")

@@ -464,24 +464,23 @@ These are handled externally to maintain separation of concerns.
 
 #### 6.1 Schema Format
 
-The pipeline outputs a list of dictionaries (JSON-compatible):
+The pipeline outputs a list of dictionaries (JSON-compatible), with one record per extracted entity.
 
-- One record per entity  
-- Flat structure (no nesting by note)  
+Important structural properties:
 
-Important to note that:
-
-- The pipeline operates at the entity level (one record per extracted entity), not the note level. 
-- A single clinical note may produce multiple entity records.
+- The pipeline operates at the **entity level**, not the note level
+- A single clinical note may generate multiple entity records
+- The output is intentionally **flat (non-nested by note)** to support large-scale processing and downstream ML use cases
 
 Each entity contains:
 
-- Extracted text  
-- Entity type  
-- Positional metadata  
-- Validation results:
-  - `confidence` (probability)
-  - `is_valid` (boolean)
+- Extracted text span
+- Entity type and concept label
+- Positional metadata within the source note
+- Source context (sentence + section)
+- Validation outputs:
+  - `confidence` (model probability)
+  - `is_valid` (binary decision)
 
 Example:
 
@@ -509,47 +508,144 @@ Example:
 
 ---
 
-### 6.2 Dataset Strategy
+#### 6.2 Dataset Strategy
 
-The pipeline intentionally does not filter entities.
+The pipeline intentionally does not perform filtering at inference time. 
+Instead, it produces a complete annotated dataset, from which multiple downstream views can be derived.
 
-Two dataset forms are supported downstream:
+Two dataset forms are supported:
 
 1. **Full Dataset (Unfiltered)**
-  - Contains all extracted entities
-  - Includes validation scores
-  - Useful for:
-    - Analysis
-    - Auditing
-    - Threshold tuning
-2. **Filtered Dataset**
-  - `is_valid == True` only
-  - Suitable for: 
-    - Downstream ML modelling
 
-Filtering is deferred to downstream steps to:
+  - Contains all extracted entities, regardless of validation outcome 
+  - Includes:
+    - All rule-based extractions
+    - Transformer confidence scores
+    - Binary validation labels
+  - Use cases
+    - Error analysis and model auditing
+    - Threshold calibration and tuning
+    - Dataset quality inspection
+    - Research and exploratory analysis
 
-- Preserve full information
-- Avoid irreversible decisions at inference time
-- Enable flexible reuse of the dataset
+2. **Filtered Dataset (Downstream Derived)**
 
-This aligns with standard ML practice:
-
-> Inference pipelines generate data; downstream pipelines decide how to use it.
+  - Subset of entities where:
+    - `is_valid == True`
+  - Use cases:
+    - Downstream machine learning models
+    - Training data construction
+    - High-precision clinical feature extraction
 
 ---
 
+#### 6.3 Design Principles
 
+The output design follows a strict separation between:
 
+> Data generation (pipeline) vs Data usage (downstream systems)
 
+Key principles:
 
+1. **Non-destructive inference**
+  - No entities are removed or altered during validation
+  - All extracted candidates are preserved
 
+2. **Deferred decision-making**
+  - Filtering (`is_valid == True`) is not applied within the pipeline
+  - Downstream tasks define their own selection criteria
 
+3. **Reproducibility**
+  - The same pipeline output can be reused across multiple experiments
+  - No need to rerun inference when changing thresholds or filters
 
+4. **Flexibility**
+  - A single dataset supports multiple use cases:
+    - analysis
+    - modelling
+    - auditing
 
+5. **Model independence**
+  - Validation outputs are recorded but not enforced
+  - The pipeline remains agnostic to downstream objectives
 
+These principles ensure the pipeline functions as a general-purpose data generation system rather than a task-specific modelling pipeline.
 
+---
 
+#### 6.4 Future Extensions
+
+The current schema is intentionally text-centric and can be extended in future directions.
+
+**A. Structured Metadata Enrichment**
+
+Additional fields from the ICU corpus can be incorporated:
+
+- `AGE`
+- `GENDER`
+- `LOS_HOURS`
+- `FIRST_CAREUNIT`
+- `CATEGORY`
+- `CHARTTIME`
+
+Purpose:
+
+- Cohort stratification
+- Subgroup analysis
+- Temporal modelling
+- Clinical context enrichment
+
+---
+
+**B. Increased Context-Aware Validation**
+
+Structured metadata can be injected into the transformer input:
+
+Example:
+
+```python
+[AGE] 74
+[GENDER] F
+[CAREUNIT] MICU
+[TEXT] ...
+```
+
+Expected benefits:
+
+- Improved classification robustness
+- Reduced ambiguity in entity interpretation
+- Better calibration across patient subgroups
+
+---
+
+**C. Multi-Modal Clinical Modelling**
+
+The dataset can be extended into a multi-modal representation layer combining:
+
+- Unstructured clinical text (current pipeline output)
+- Structured EHR variables
+- Entity-level features
+
+Downstream applications:
+
+- Patient risk prediction
+- Outcome modelling
+- Clinical decision support systems
+- Similarity search over patient cohorts
+
+---
+
+**D. Feature Store Integration**
+
+Rather than modifying the pipeline, metadata can be joined downstream via a feature store approach.
+
+This enables:
+
+- Reproducible dataset variants
+- Experiment tracking across feature configurations
+- Separation of NLP extraction vs predictive modelling pipelines
+
+---
 
 # Large-Scale Dataset Generation
 
@@ -631,6 +727,38 @@ This shows:
 This ensures:
 
 > The large-scale dataset faithfully reflects the validated behaviour observed in Phase 4.
+
+---
+
+This script is correctly acting as:
+
+a pipeline execution layer, not a data-processing system
+
+Meaning:
+
+* it orchestrates
+* it does not transform logic
+* it delegates everything to run_pipeline
+
+That is exactly the correct architecture.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ---
 
@@ -822,6 +950,36 @@ Do exactly this:
 3. Add Docker
 4. Deploy on Railway
 5. Add GitHub Actions
+
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ---
 
 # Diagrams (Important)
