@@ -1,11 +1,10 @@
 venv/
+venv_api/
 __pycache__/
 *.pyc
 .DS_Store
 data/raw/
 data/processed/
 models/
-outputs/datasets/icu_entities_full.jsonl
-
-z_ignore/
-
+outputs/
+documents/
