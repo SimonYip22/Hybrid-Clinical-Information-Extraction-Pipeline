@@ -5,7 +5,7 @@
 The objective of Phase 5 is to transition from model development and evaluation to a fully operational, reproducible inference system that can be:
 
 - Applied at scale to large clinical datasets (`icu_corpus.csv`)
-- Used for individual or batch inference  
+- Used for individual report inference (interactive use)
 - Exposed as a deployable service  
 
 This phase consolidates all prior work into a single unified pipeline that:
@@ -26,7 +26,7 @@ The phase has three core goals:
 
 3. **Deployment**
   - Expose the pipeline via a simple API (FastAPI)
-  - Enable both single-report and batch inference  
+  - Enable both single-report inference  
 
 ---
 
@@ -51,7 +51,7 @@ In app/
 ✔ Deployable architecture
 
 * same code used in:
-    * batch processing
+    * single-report inference
     * real-time inference
 
 ✔ Production thinking
@@ -81,7 +81,7 @@ This stage defines the core system of the project: a unified inference pipeline 
 The pipeline is implemented as a single reusable module and serves as the single source of truth for all inference logic, supporting:
 
 1. Large-scale dataset generation (160k ICU corpus)
-2. Deployment (single and batch inference)
+2. Deployment (single-report inference)
 
 The goal is to construct a modular, scalable, and reproducible ML pipeline consistent with real-world system design.
 
@@ -413,7 +413,7 @@ No information is discarded during validation:
 The function is fully batch-compatible and scalable:
 
 - Efficient for both:
-  - Small inference batches (deployment)
+  - Single report inference (deployment)
   - Large corpora (160k+ dataset generation)
 
 ---
@@ -660,333 +660,457 @@ This enables:
 
 ---
 
-# Large-Scale Dataset Generation
+## Large-Scale Dataset Generation
 
-## 1. Overview
+### 1. Overview
 
-This stage applies the constructed pipeline to the full ICU dataset (~160K reports) to generate a **large-scale structured clinical entity dataset**.
+This stage applies the extraction–validation pipeline to the full ICU corpus (~160K clinical notes) to generate a large-scale structured clinical entity dataset.
 
-This is not a new system, but a **direct application of the pipeline at scale**.
+This is a direct deployment of the existing pipeline at scale:
 
----
-
-### Purpose
-
-- Demonstrate **scalability** of the pipeline  
-
-- Generate a **real-world dataset** suitable for:
-
-  - Machine learning  
-
-  - Clinical analysis  
-
-  - Further research  
-
-- Provide evidence of:
-
-  - End-to-end system functionality  
-
-  - Practical utility beyond evaluation datasets  
-
----
-
-### Process
-
-1. Load full ICU corpus  
-
-2. Iterate over reports  
-
-3. Apply `pipeline.py` to each report  
-
-4. Collect outputs  
-
----
-
-### Output
-
-- Stored as **JSONL (JSON Lines)**:
-
-  - One JSON object per report  
-
-  - Efficient for large-scale processing  
-
-  - Standard format in NLP pipelines  
-
-Optional:
-
-- CSV conversion may be performed later for specific analyses  
-
-- Not required for core pipeline functionality  
-
-Be explicit:
-
-“The pipeline outputs a fully annotated dataset. A filtered high-precision subset (is_valid = True) is derived for downstream modelling.”
-
-This shows:
-
-* awareness of trade-offs
-* correct ML pipeline design
-
----
-
-### Key Characteristics
-
-- **Identical logic** to evaluation pipeline  
-
+- Identical extraction and validation logic  
 - No retraining or modification  
+- Only the data scale differs from earlier stages  
 
-- Only difference: **data scale**
+This ensures the resulting dataset directly reflects the behaviour validated during earlier evaluation phases.
 
-This ensures:
+The script acts purely as an execution layer:
 
-> The large-scale dataset faithfully reflects the validated behaviour observed in Phase 4.
+- Orchestrates pipeline execution  
+- Delegates all processing to `run_pipeline()`  
+- Introduces no additional transformation logic  
 
----
+This design demonstrates:
 
-This script is correctly acting as:
-
-a pipeline execution layer, not a data-processing system
-
-Meaning:
-
-* it orchestrates
-* it does not transform logic
-* it delegates everything to run_pipeline
-
-That is exactly the correct architecture.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+- Scalability to large clinical datasets
+- End-to-end system robustness  
+- Practical applicability to real-world settings 
 
 ---
 
-# Deployment Pipeline
+### 2. Execution via Modular Pipeline
+
+The script invokes the pipeline through a single entry point:
+
+`run_pipeline(df=chunk, ...)`
+
+This reflects the modular design:
+
+- Extraction and validation logic are encapsulated within the pipeline  
+- The script contains no business logic  
+- No duplication of functionality occurs  
+
+This separation ensures:
+
+- Clean orchestration  
+- Reproducibility  
+- Ease of maintenance  
+
+---
+
+### 3. Scalability and Memory Management
+
+#### 3.1 Chunked Processing
+
+The ICU dataset is processed in chunks (`CHUNK_SIZE = 3000`) to manage memory usage:
+
+- The full dataset cannot be safely loaded into memory alongside:
+  - Intermediate entity lists
+  - Transformer inference batches
+- Chunking ensures:
+  - Stable memory usage
+  - Predictable runtime behaviour
+
+Trade-off:
+
+- Larger chunks → fewer iterations (faster I/O)
+- Smaller chunks → lower memory usage
+
+A value of 3000 was selected as a balanced configuration for:
+
+- CPU-based inference
+- 16GB memory constraints
+
+---
+
+#### 3.2 Selective Column Loading
+
+For data efficiency, only the required columns for the pipeline are loaded from the CSV:
+
+`usecols = ["TEXT", "SUBJECT_ID", "HADM_ID", "ICUSTAY_ID"]`
+
+- Only columns required by the pipeline are loaded
+- Reduces:
+  - Memory footprint
+  - Disk I/O (faster loading)
+  - Parsing overhead
+
+Other columns (e.g. demographics, timestamps) are excluded because:
+
+- They are not used in extraction or validation
+- Including them would increase computational cost without benefit
+
+---
+
+#### 3.3 Single Pipeline Call per Chunk
+
+The pipeline is applied once per chunk:
+
+`entities = run_pipeline(df=chunk, ...)`
+
+This avoids:
+
+- Redundant computation
+- Exponential runtime increases
+- Duplicated outputs
+
+All iteration over rows is handled internally within the pipeline.
+
+---
+
+### 4. Global `note_id` Generation
+
+#### 4.1 Implementation
+
+`note_id` is generated at the orchestration level to ensure globally unique identifiers across the full dataset:
+
+- A global counter (`global_idx`) is maintained across chunks  
+- Each note is assigned: `note_{global_idx}`  
+- IDs are attached to the DataFrame and passed into the pipeline  
+
+This guarantees:
+
+- No duplication of identifiers across chunks  
+- Stable mapping between entities and their source notes  
+
+---
+
+#### 4.2 Rationale
+
+Chunk-based processing would otherwise reset identifiers per chunk:
+
+- Chunk 1 → note_1 … note_3000  
+- Chunk 2 → note_1 … note_3000 (duplicate)
+
+This would cause:
+
+- Identifier collisions  
+- Loss of traceability  
+- Incorrect downstream aggregation  
+
+Global indexing eliminates this failure mode.
+
+---
+
+#### 4.3 Design Principle
+
+Identifier generation is intentionally excluded from core pipeline functions:
+
+- Pipeline components remain stateless and reusable  
+- Dataset-specific concerns (ordering, identity tracking) are handled externally  
+
+This ensures consistent behaviour across different execution contexts and avoids duplicated logic.
+
+---
+
+### 5. Output Format
+
+The pipeline outputs data in **JSONL (JSON Lines)** format:
+
+- One JSON object per extracted entity (not per clinical note)  
+- Flat structure to support streaming and large-scale processing  
+- Optimised for downstream machine learning and analytical workflows  
+
+JSON serialization is handled with `json.dumps(entity, default=float)` to ensure:
+
+- Compatibility with NumPy scalar types (converted to native Python floats)
+- Valid JSON serialization without manual preprocessing
+- No loss of numerical precision at the schema level
+
+---
+
+### 6. Post-Generation Dataset Strategy
+
+The dataset is intentionally unfiltered even as a full corpus output:
+
+- All extracted entities are retained  
+- Validation outputs (`confidence`, `is_valid`) are included
+- Dataset generation is therefore non-destructive and preserves all information for:
+  - Full auditability of model behaviour
+  - Reproducibility of downstream filtering decisions
+
+From the same output, multiple dataset variants can be derived:
+
+- Full dataset: For analysis, debugging, threshold calibration, and error inspection
+- Filtered dataset (`is_valid == True`): Used for downstream modelling and high-precision applications
+
+---
+
+### Final Dataset Properties
+
+Full metrics are available in `full_dataset_explore.ipynb`.
+
+1. Scale
+
+  * Total number of notes processed (~160k)  
+  * Total number of entities extracted (~780k)  
+
+2. Distribution Checks
+
+  * Entities per note (mean, median, distribution)  
+  * Entity type distribution:
+      * SYMPTOM  
+      * INTERVENTION  
+      * CONDITION  
+
+3. Coverage Analysis
+
+  * Unique SUBJECT_IDs in extracted dataset  
+  * Compared to source dataset (~25k)  
+
+  Purpose:
+  - Quantify extraction coverage across patients  
+
+4. Extraction Coverage
+
+  * Notes with ≥1 entity  
+  * Notes with zero entities  
+  * % coverage  
+
+  Purpose:
+  - Evaluate recall at the note level  
+
+5. Validation Behaviour
+
+  * % of entities where is_valid == True  
+  * Confidence score distribution  
+
+  Purpose:
+  - Assess threshold effectiveness  
+  - Understand precision–recall trade-off  
+
+---
+
+### Workflow Implementation
+
+All logic in `generate_full_dataset.py` follows these steps:
+
+1. **Initialise environment and load dependencies**
+  - Load transformer tokenizer and classification model
+  - Move model to available device (CPU/GPU)
+  - Set evaluation mode (`model.eval()`)
+
+2. **Configure dataset streaming**
+  - Read ICU corpus using `pandas.read_csv()` with `chunksize=3000`
+  - Restrict input columns using `usecols` to:
+    - `TEXT`
+    - `SUBJECT_ID`
+    - `HADM_ID`
+    - `ICUSTAY_ID`
+  - This reduces memory overhead and I/O cost
+
+3. **Initialise global identifier tracking**
+  - Maintain a global counter (`global_idx`) across all chunks
+  - Ensures continuous indexing across dataset stream
+
+4. **Iterate over dataset in chunks**
+  - Process dataset incrementally to avoid memory overload
+  - Each chunk is independently loaded and processed
+
+5. **Assign globally unique `note_id`**
+  - For each row in the chunk:
+    - Increment global counter
+    - Assign identifier in format: `note_{global_idx}`
+  - Attach resulting `note_id` column to the DataFrame
+  - Ensures cross-chunk uniqueness and stable traceability
+
+6. **Execute pipeline per chunk**
+  - Call `run_pipeline(df=chunk, ...)`
+  - Pipeline internally performs:
+    - Preprocessing
+    - Section extraction
+    - Entity extraction
+    - Validation scoring
+  - Returns flattened list of entity-level outputs
+
+7. **Serialize and write outputs**
+  - Iterate over extracted entities
+  - Write each entity as a JSON line to disk
+  - Use `json.dumps(..., default=float)` to ensure:
+    - NumPy numeric types are converted to native Python floats
+    - Full JSON compatibility is preserved
+
+8. **Persist final dataset**
+  - Output stored as JSONL format
+  - One entity per line
+  - Suitable for streaming, downstream ML, and large-scale analysis
+
+---
+
+## Deployment Pipeline
 
 ## 1. Overview
 
-This stage exposes the pipeline as a **usable inference service**, enabling:
+This stage exposes the clinical NLP pipeline as a **lightweight inference service**, enabling real-world usage of the system through an API interface.
 
-- Single-report inference (interactive use)
+The deployment reuses the existing `pipeline.py` module directly, ensuring:
 
-- Batch inference (multiple reports)
+> A single source of truth across development, evaluation, and production.
 
-The deployment reuses the same `pipeline.py` module, ensuring:
+No additional model logic is introduced at deployment level.
 
-> No duplication of logic between development, evaluation, and production
+This is a production level system design that reflects real-world ML deployment patterns
 
 ---
 
-### Deployment Approach
+## 2. System Design
 
-A lightweight API is implemented using **FastAPI**, providing:
+The system is a stateless inference API built using FastAPI.
 
-#### Endpoint 1: Single Report
+### Core properties:
+
+- Stateless (no database, no session tracking)  
+- Deterministic (same input → same output)  
+- Thin wrapper over existing pipeline  
+- Fully reproducible outputs  
+
+---
+
+## 3. API Design
+
+### 3.1 `/predict`
 
 - Input: raw clinical text  
-
 - Output: structured entity JSON  
-
-#### Endpoint 2: Batch Inference (optional)
-
-- Input: list of reports  
-
-- Output: list of structured outputs  
+- Logic: direct call to `run_pipeline()`  
 
 ---
 
-### Purpose
+### 3.2 `/health`
 
-- Demonstrate **real-world usability** of the system  
-
-- Provide a **clean interface** for external use  
-
-- Show evidence of:
-
-  - Deployment capability  
-
-  - API design  
-
-  - Reproducible inference  
+- Returns system status  
+- Used for deployment monitoring and uptime checks  
 
 ---
 
-### Design Principles
-
-- **Thin wrapper over pipeline**
-
-  - No additional logic introduced  
-
-  - Calls `pipeline.py` directly  
-
-- **Consistency**
-
-  - Outputs identical to batch generation and evaluation  
-
-- **Simplicity**
-
-  - No unnecessary front-end required  
-
-  - Focus on functionality and reproducibility  
-
----
-
-Deployment: Final Method (Fixed Scope)
-
-1. What you are building
-
-A stateless inference API that exposes your pipeline.
-
-Nothing more.
-
-⸻
-
-2. Tech Stack (Do not deviate)
-
-Backend
-
-* Python
-* FastAPI
-
-Server
-
-* Uvicorn
-
-Containerisation
-
-* Docker
-
-Hosting
-
-* Cloud run GCP
-
-CI/CD
-
-* GitHub Actions
-
-⸻
-
-3. What you will implement (strict scope)
-
-3.1 Core API (FastAPI)
-
-You will implement exactly 2 endpoints:
-
-1. /predict
-
-* Input: single clinical report (string)
-* Output: structured JSON (your pipeline output)
-
-2. /health
-
-* Returns: simple status ({"status": "ok"})
-
-That’s it.
-
-❌ No batch endpoint
-❌ No frontend
-❌ No authentication
-❌ No database
-
-This setup proves:
-
-Engineering
-
-* Modular pipeline design
-* Separation of concerns
-* Reusable inference logic
-
-ML
-
-* End-to-end deployment of trained model
-* Real inference system (not notebook)
-
-DevOps
-
-* Containerisation (Docker)
-* CI/CD integration
-* Cloud deployment
-
-This is exactly what recruiters want.
-
-User → API (/predict)
-        ↓
-   FastAPI app
-        ↓
-   pipeline.py
-        ↓
-Rule-based → Transformer → Threshold
-        ↓
-   JSON output
+## 4. System Architecture
 
 Client
-  ↓
-Cloud Run (FastAPI)
-  ↓
-pipeline.py
-  ↓
-Rule-based → Transformer → Threshold
-  ↓
-Structured JSON
-
-   13. Why this is optimal
-
-This approach is:
-
-* Minimal → avoids burnout
-* Correct → matches industry patterns
-* High signal → ticks all boxes recruiters care about
-* Reusable → same pipeline powers everything
-
-⸻
-
-Final instruction
-
-Do exactly this:
-
-1. Finish pipeline.py
-2. Wrap it with FastAPI
-3. Add Docker
-4. Deploy on Railway
-5. Add GitHub Actions
+↓
+FastAPI (/predict)
+↓
+pipeline.py (run_pipeline)
+↓
+Preprocessing → Extraction → Validation
+↓
+JSON output
 
 ---
 
+## 5. Design Principles
 
+### 5.1 Minimal Wrapper Design
 
+The API layer contains no ML logic:
 
+- No preprocessing logic duplication  
+- No model handling logic duplication  
+- No transformation logic  
 
+It only orchestrates inference calls.
 
+---
 
+### 5.2 Reusability
 
+The same pipeline is used across:
 
+- offline batch generation  
+- evaluation pipeline  
+- deployment API  
 
+This ensures consistency across all system stages.
 
+---
 
+### 5.3 Stateless Inference
 
+- No stored state between requests  
+- Each request is independent  
+- Enables horizontal scaling in cloud environments  
 
+---
 
+## 6. Infrastructure Stack
 
+### Backend
 
+- Python  
+- FastAPI  
 
+### Server
 
+- Uvicorn  
 
+### Containerisation
 
+- Docker  
 
+### Deployment Target
+
+- Google Cloud Run  
+
+### CI/CD
+
+- GitHub Actions (minimal build + deploy pipeline)
+
+---
+
+## 7. Scope Constraints (Important)
+
+The deployment is intentionally minimal.
+
+The following are NOT included:
+
+- ❌ Batch inference endpoint  
+- ❌ Database integration  
+- ❌ Authentication layer  
+- ❌ Frontend interface  
+- ❌ Feature store  
+
+---
+
+## 8. Rationale
+
+This design is chosen to maximise:
+
+### Engineering clarity
+
+- Clean separation between API and ML logic  
+
+### Deployment reliability
+
+- Stateless, containerised service  
+
+### Portfolio signal strength
+
+- Reflects real production ML systems used in industry  
+
+### Maintainability
+
+- Single pipeline reused across all system stages  
+
+---
+
+## 9. Implementation Order
+
+1. Finalise `run_pipeline()` stability  
+2. Implement FastAPI wrapper (`/predict`, `/health`)  
+3. Build Docker container  
+4. Deploy to Google Cloud Run  
+5. Add minimal CI/CD via GitHub Actions  
+
+---
 
 
 
