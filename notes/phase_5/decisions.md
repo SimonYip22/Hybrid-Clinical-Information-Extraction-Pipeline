@@ -1316,6 +1316,41 @@ True MLOps (bigger jump)
 
 ---
 
+3. What this proves (system correctness)
+
+You now have:
+
+Development system
+
+* FastAPI + uvicorn
+* local Python environment
+
+Production-like system
+
+* Docker container
+* isolated dependencies
+* identical runtime to cloud deployment
+
+Inference system
+
+* model loads inside container
+* pipeline executes
+* structured JSON output returned
+
+⸻
+
+4. Important clarification (conceptual)
+
+You are NOT documenting “two systems”.
+
+You are documenting:
+
+one system with two execution modes
+
+* Mode 1: dev server (fast iteration)
+* Mode 2: containerised runtime (deployment parity)
+---
+
 ## 9. Implementation Order
 
 1. Finalise `run_pipeline()` stability  
@@ -1326,11 +1361,259 @@ True MLOps (bigger jump)
 
 ---
 
+1. Local setup (clear, reproducible)
 
+* install deps
+* run API
+* test endpoint
 
+2. API usage
 
+* input format ({"text": ...})
+* example request
+* example response
 
+3. Deployed endpoint
 
+* live URL
+* same request example
+
+4. Input constraints
+
+* ICU-style notes required
+* non-clinical text may return empty
+
+---
+
+Key lessons from this failure
+
+1. Build vs runtime are separate problems
+
+* Build issues: .gcloudignore, Docker context
+* Runtime issues: memory, startup, model loading
+
+You resolved both layers.
+
+⸻
+
+2. Cloud constraints matter more than local correctness
+
+Local success does not validate deployment:
+
+* Cloud Run default memory (512MB) was insufficient
+* Model load caused silent container crash
+
+Service URL: https://clinical-nlp-api-1064509144938.europe-west1.run.app
+
+What actually exists now (important concept)
+
+You do NOT have “one app”.
+
+You have:
+
+A versioned system
+
+* Container image (in GCR)
+* Cloud Run service
+* Revisions (immutable deployments)
+
+Each deploy creates:
+
+* clinical-nlp-api-00001
+* clinical-nlp-api-00002
+* etc.
+
+Cloud Run routes traffic to the latest.
+
+Cloud Deployment (Cloud Run)
+
+1. Overview
+
+The clinical NLP pipeline is deployed as a containerised inference service using Google Cloud Run.
+
+This enables:
+
+* external access via HTTPS
+* scalable, on-demand inference
+* production-like deployment conditions
+
+⸻
+
+2. Deployment Model
+
+The system follows a container-based serverless deployment:
+
+* Docker image built via Cloud Build
+* Image stored in Google Container Registry
+* Service deployed to Cloud Run
+
+⸻
+
+3. Runtime Characteristics
+
+Serverless execution
+
+* Containers are instantiated on request
+* No always-on server
+* Scales to zero when idle
+
+Stateless design
+
+* No persistence between requests
+* Each request is independent
+
+⸻
+
+4. Key Deployment Constraints (Critical Learnings)
+
+4.1 Memory limits
+
+Default Cloud Run memory (512MB) was insufficient.
+
+Observed failure:
+
+* container failed to start
+* misleading error: “failed to listen on PORT=8080”
+
+Actual cause:
+
+* model loading exceeded memory during startup
+
+Resolution: --memory 2Gi
+
+4.2 Startup time constraints
+
+Large model loading caused slow initialisation.
+
+Resolution:
+--timeout 300
+
+4.3 Misleading error messages
+
+Cloud Run error:
+
+container failed to start and listen on PORT=8080
+
+This did NOT indicate a networking issue.
+
+Actual issue:
+
+* application crashed before server startup
+
+⸻
+
+5. Build vs Runtime Separation
+
+A critical distinction emerged:
+
+Build-time correctness
+
+* Dockerfile
+* .gcloudignore
+* correct file inclusion (model present)
+
+Runtime correctness
+
+* memory allocation
+* startup time
+* model loading behaviour
+
+Both must be satisfied independently.
+
+⸻
+
+6. Model Packaging Strategy
+
+The model is bundled inside the container:
+
+/app/models/bioclinicalbert_final/
+
+Advantages:
+
+* no external downloads
+* deterministic execution
+* no authentication issues (e.g. HuggingFace)
+
+⸻
+
+7. Deployment Command (Final)
+
+gcloud run deploy clinical-nlp-api \
+  --image gcr.io/clinical-nlp-api/clinical-nlp-api \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --memory 2Gi \
+  --timeout 300
+
+⸻
+
+8. Validation
+
+Health check
+
+curl https://clinical-nlp-api-1064509144938.europe-west1.run.app/health
+
+Inference request
+
+curl -X POST "https://clinical-nlp-api-1064509144938.europe-west1.run.app/predict" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "..."}'
+
+9. System Properties Achieved
+
+* Production-style inference service
+* Containerised ML system
+* Cloud-native deployment
+* Reproducible runtime environment
+* External API access
+
+⸻
+
+10. Limitations (Explicit)
+
+Not implemented:
+
+* request logging
+* monitoring
+* model versioning
+* automated retraining
+* drift detection
+
+This is an inference-only deployment.
+
+* Service URL: stable
+* Deployment: persists until changed
+* CI/CD: not required, but strategically valuable
+---
+
+Right now deployment depends on:
+
+* your local machine
+* your CLI state
+* manual commands
+
+CI/CD turns deployment into:
+
+* version-controlled
+* repeatable
+* environment-independent
+
+Signalling (this matters for your goals)
+
+You are building a portfolio for ML/AI roles.
+
+CI/CD signals:
+
+* you understand deployment pipelines
+* you can productionise systems
+* you remove human-in-the-loop deployment
+
+This is not superficial — it is expected in industry.
+
+it’s:
+
+* not needed for this project to function
+* but highly valuable as evidence of engineering maturity
 ---
 
 # Diagrams (Important)
