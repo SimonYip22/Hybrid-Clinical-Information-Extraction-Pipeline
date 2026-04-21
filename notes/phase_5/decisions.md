@@ -1636,10 +1636,51 @@ But forgot:
 * API disabled ❌ (project API gate)
 ---
 
+What “deployment succeeded” actually means
 
+When Cloud Run gives you a URL like:
 
+https://clinical-nlp-api-xxxx.europe-west1.run.app
 
+That means:
 
+You now have a live server running in Google’s infrastructure.
+
+Concretely:
+
+* Google is hosting your Docker container
+* It is running 24/7 (serverless, auto-managed)
+* It scales automatically on traffic
+* It restarts if it crashes
+* It exposes HTTP endpoints (/health, /predict)
+
+So your system is now:
+
+Client → HTTPS URL → Cloud Run container → your FastAPI app → model inference
+
+Does it run permanently?
+
+Yes, but with nuance:
+
+* It runs continuously while deployed
+* It may scale to zero when idle (cold start)
+* It is not “running on your laptop anymore”
+* You only redeploy when you change code or image
+
+So CI/CD is just automation of redeployments.
+
+Why CI/CD still matters (even if you “won’t update it”)
+
+Even if you never touch it again, CI/CD is still useful because:
+
+* proves production-grade engineering workflow
+* shows reproducible deployment pipeline
+* allows future fixes without manual redeploy steps
+* is a strong DevOps signal on CV / portfolio
+
+But yes:
+
+In a static academic project, it is mostly demonstration value.
 
 
 
