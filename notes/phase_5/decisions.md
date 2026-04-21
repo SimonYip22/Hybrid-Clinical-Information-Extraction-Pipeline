@@ -1614,6 +1614,35 @@ it’s:
 
 * not needed for this project to function
 * but highly valuable as evidence of engineering maturity
+
+
+
+---
+WHY THIS FAILED (simple explanation)
+
+Your pipeline is:
+
+GitHub Actions → Cloud Build → GCR → Cloud Run
+
+You gave permissions for:
+
+* deploying (Run Admin) ✔
+* storage ✔
+
+But forgot:
+
+* building images ❌ (Cloud Build permission)
+* writing images ❌ (Artifact Registry permission)
+* API disabled ❌ (project API gate)
+---
+
+
+
+
+
+
+
+
 ---
 
 # Diagrams (Important)
