@@ -1008,11 +1008,7 @@ The deployment process follows a staged approach, with each step addressing a sp
 - **Cloud deployment (Cloud Run)** → expose the API as a public service  
 - **CI/CD (GitHub Actions)** → automate build and deployment on code changes  
 
-The system is ultimately exposed as a lightweight inference API, enabling real-world usage via structured endpoints. Key design principles:
-
-- Reuse of the existing `pipeline.py` module  
-- Single source of truth across development, evaluation, and production  
-- No additional model logic introduced at deployment stage  
+The system is ultimately exposed as a lightweight inference API, enabling real-world usage via structured endpoints.
 
 Overall, the focus is not on modifying the model itself, but on packaging, serving, and automating the pipeline in a consistent and production-aligned manner.
 
@@ -1046,7 +1042,7 @@ This architecture enforces clear separation of concerns:
 
 - Cloud Run → request handling, scaling, infrastructure
 - Uvicorn + FastAPI → API serving layer
-- pipeline.py → all ML and rule-based logic
+- `pipeline.py` → all ML and rule-based logic
 
 ---
 
@@ -1104,6 +1100,7 @@ This setup enables a fully automated and reproducible deployment pipeline, where
 ├── app/
 │   └── main.py
 ├── models/
+├── src/
 ├── .github/
 │   └── workflows/
 │       └── deploy.yaml
@@ -1113,42 +1110,6 @@ This setup enables a fully automated and reproducible deployment pipeline, where
 ├── .gcloudignore
 ├── .gitattributes
 ```
-
-
-
----
-
-⸻
-
-2.3 Cloud Deployment (Google Cloud Run)
-
-* Image built via Cloud Build
-* Deployed to Cloud Run
-* Public URL generated
-
-Validation:
-
-* /health
-* /predict
-
-Important insight:
-
-Transition from local system → externally accessible service
-
-⸻
-
-2.4 CI/CD Automation (GitHub Actions)
-
-* Trigger: push to main
-* Steps:
-    * Checkout + LFS pull
-    * Build container
-    * Deploy to Cloud Run
-
-Purpose:
-
-* Remove manual deployment
-* Ensure reproducibility
 
 ---
 
@@ -1278,7 +1239,12 @@ Local access:
 
 ## 5. API Usage
 
-### 5.1 `POST /predict` Endpoint
+### 5.1 Endpoint & Input
+
+Base URL: https://clinical-nlp-api-1064509144938.europe-west1.run.app
+
+Endpoints: `POST /predict` and `GET /health` (for service status check)
+
 
 Request format: 
 
@@ -1288,23 +1254,20 @@ Request format:
 }
 ```
 
-- Input must be a JSON object with a "text" field
-- The value should be a clinical note or report
+Requirements:
 
----
+- Request must be a JSON object with a "text" field
+- Value must be a clinical note or report (string)
 
-### 5.2 Input Expectations
+The pipeline is designed for structured clinical text (designed based on MIMIC-IV report structure):
 
-The pipeline is designed around clinical note structure (inspired by MIMIC-style data), therefore:
-
-- Text should contain semi-structured clinical language
-- Sections such as HPI, Assessment, Plan improve extraction performance
-- Abbreviations (e.g. SOB, CP) are supported
+- Sections (e.g. HPI, Assessment, Plan) improve extraction quality
+- Specific clinical words and phrases are expected and captured by rules
 - Free-form text is accepted, but structured notes produce more reliable outputs
 
 ---
 
-### 5.3 Input and Output Examples
+### 5.3 Example Usage
 
 Example Request:
 
@@ -1380,6 +1343,7 @@ The container is defined by the following files:
 - `Dockerfile` → defines how the image is built  
 - `requirements-api.txt` → Python dependencies for the API  
 - `.dockerignore` → excludes unnecessary files from the build context  
+- `models/` and `src/` → application code and model files are copied into the image for execution 
 
 ---
 
@@ -1625,277 +1589,253 @@ True MLOps (bigger jump)
 
 ---
 
-## Cloud Deployment (Cloud Run)
+## Cloud Deployment (Google Cloud Run)
 
-Service URL: https://clinical-nlp-api-1064509144938.europe-west1.run.app
+### 7.1 Purpose
 
-What actually exists now (important concept)
+The containerised API is deployed to Google Cloud Run to transform the system from a local service into an externally accessible ML inference service enabling: 
 
-You do NOT have “one app”.
+- Public HTTPS access  
+- Scalable, on-demand inference
+- production-like execution environment  
 
-You have:
+Unlike local and containerised testing, this step introduces:
 
-A versioned system
+- Remote hosting (cloud-hosted API)
+- Managed infrastructure (no server maintenance)
+- Real-world access to the system  
 
-* Container image (in GCR)
-* Cloud Run service
-* Revisions (immutable deployments)
+This represents the transition from a local development system to a production-style deployment.
 
-Each deploy creates:
+---
 
-* clinical-nlp-api-00001
-* clinical-nlp-api-00002
-* etc.
+### 7.2 Deployment Model & Workflow
 
-Cloud Run routes traffic to the latest.
+The system follows a container-based serverless deployment pipeline:
 
-1. Overview
+- Docker image built using **Cloud Build**  
+- Image stored in **Google Container Registry (GCR)**  
+- Container deployed as a service on **Cloud Run**  
 
-The clinical NLP pipeline is deployed as a containerised inference service using Google Cloud Run.
+Deployment flow:
 
-This enables:
+1. Container image is built via Cloud Build  
+2. Image is pushed to `gcr.io`  
+3. Cloud Run deploys the image as a new revision  
+4. A public HTTPS endpoint is generated  
+5. Traffic is routed to the latest deployment  
 
-* external access via HTTPS
-* scalable, on-demand inference
-* production-like deployment conditions
+This creates a fully managed, externally accessible inference service without requiring manual server setup.
 
-⸻
+---
 
-2. Deployment Model
+### 7.3 Runtime System (Cloud Run)
 
-The system follows a container-based serverless deployment:
+At deployment, the system consists of:
 
-* Docker image built via Cloud Build
-* Image stored in Google Container Registry
-* Service deployed to Cloud Run
+- **Container image** (stored in GCR)  
+- **Cloud Run service** (serving layer)  
+- **Revisions** (immutable deployments)
 
-⸻
+Each deployment creates a new revision:
 
-3. Runtime Characteristics
+- `clinical-nlp-api-00001` → `clinical-nlp-api-00002` etc.
+- Cloud Run automatically routes traffic to the latest revision.
 
-Serverless execution
+Runtime properties:
 
-* Containers are instantiated on request
-* No always-on server
-* Scales to zero when idle
+- **Serverless execution**
+  - Containers are instantiated on request  
+  - No always-on server  
+  - Scales to zero when idle  
 
-Stateless design
+- **Stateless inference**
+  - No persistence between requests  
+  - Each request is processed independently  
 
-* No persistence between requests
-* Each request is independent
+---
 
-⸻
+### 7.4 Deployment Configuration
 
-4. Key Deployment Constraints (Critical Learnings)
+Key deployment parameters:
 
-4.1 Memory limits
+- `--memory 2Gi` → required for model loading  
+- `--timeout 300` → allows sufficient startup time  
+- `--allow-unauthenticated` → enables public API access  
 
-Default Cloud Run memory (512MB) was insufficient.
+These ensure the container can initialise and serve requests reliably in the cloud environment.
 
-Observed failure:
+---
 
-* container failed to start
-* misleading error: “failed to listen on PORT=8080”
+### 7.5 Challenges & Key Learnings
 
-Actual cause:
+Memory limitations:
 
-* model loading exceeded memory during startup
+- Default (512MB) insufficient for model loading  
+- Caused container startup failure  
+- Resolved by increasing memory to 2Gi
 
-Resolution: --memory 2Gi
+Startup latency:
 
-4.2 Startup time constraints
+- Large model loading increased initialisation time  
+- Required extended timeout (300s) to prevent premature termination
 
-Large model loading caused slow initialisation.
+Misleading errors:
 
-Resolution:
---timeout 300
+- Error: “failed to listen on PORT=8080”
+- Actual issue: container crashed before server startup 
 
-4.3 Misleading error messages
+Critical insight is that deployment requires correctness at two levels:
 
-Cloud Run error:
+1. **Build-time:** Dockerfile configuration, dependencies, model inclusion  
+2. **Runtime:** Memory allocation, startup time, application stability  
 
-container failed to start and listen on PORT=8080
+Both must be satisfied for successful deployment.
 
-This did NOT indicate a networking issue.
+---
 
-Actual issue:
+### 7.6 Deployed Service
 
-* application crashed before server startup
+The API is accessible via: https://clinical-nlp-api-1064509144938.europe-west1.run.app
 
-⸻
+Available endpoints:
 
-5. Build vs Runtime Separation
+- `GET /health`
+- `POST /predict`
 
-A critical distinction emerged:
+The deployed service maintains:
 
-Build-time correctness
+- Identical request format
+- Identical response structure
+- Consistent behaviour with local execution
 
-* Dockerfile
-* .gcloudignore
-* correct file inclusion (model present)
+---
 
-Runtime correctness
+### 7.7 Validation
 
-* memory allocation
-* startup time
-* model loading behaviour
-
-Both must be satisfied independently.
-
-⸻
-
-6. Model Packaging Strategy
-
-The model is bundled inside the container:
-
-/app/models/bioclinicalbert_final/
-
-Advantages:
-
-* no external downloads
-* deterministic execution
-* no authentication issues (e.g. HuggingFace)
-
-⸻
-
-7. Deployment Command (Final)
-
-gcloud run deploy clinical-nlp-api \
-  --image gcr.io/clinical-nlp-api/clinical-nlp-api \
-  --region europe-west1 \
-  --allow-unauthenticated \
-  --memory 2Gi \
-  --timeout 300
-
-⸻
-
-8. Validation
+Deployment was verified using:
 
 Health check
 
+```bash
 curl https://clinical-nlp-api-1064509144938.europe-west1.run.app/health
+```
 
 Inference request
 
+```bash
 curl -X POST "https://clinical-nlp-api-1064509144938.europe-west1.run.app/predict" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
   }'
+```
 
-Deployed Endpoint
+This confirms:
 
-The API is deployed on Google Cloud Run and accessible via:
-
-* Same endpoints (/health, /predict)
-* Same request/response format
-* Fully reproducible behaviour compared to local environment
-
-9. System Properties Achieved
-
-* Production-style inference service
-* Containerised ML system
-* Cloud-native deployment
-* Reproducible runtime environment
-* External API access
+- API accessibility
+- Correct model loading
+- End-to-end pipeline execution
 
 ---
 
+## 8. CI/CD (Continuous Integration & Deployment)
 
+### 8.1 Purpose
 
+CI/CD automates the deployment process, converting it from a manual, environment-dependent workflow into a version-controlled, reproducible pipeline.
 
+Without CI/CD, deployment depends on:
 
----
+- Local machine state  
+- Manual CLI commands  
+- Correct sequencing of steps  
 
-## CI/CD
+CI/CD removes this dependency by ensuring that every deployment:
 
-Right now deployment depends on:
+- Is triggered from source control  
+- Follows a fixed, repeatable process  
+- Produces consistent results across environments  
 
-* your local machine
-* your CLI state
-* manual commands
-
-CI/CD turns deployment into:
-
-* version-controlled
-* repeatable
-* environment-independent
-
-Signalling (this matters for your goals)
-
-You are building a portfolio for ML/AI roles.
-
-CI/CD signals:
-
-* you understand deployment pipelines
-* you can productionise systems
-* you remove human-in-the-loop deployment
-
-This is not superficial — it is expected in industry.
-
-it’s:
-
-* not needed for this project to function
-* but highly valuable as evidence of engineering maturity
+This does not change the system itself, it automates how the system is built and deployed.
 
 ---
 
-What “deployment succeeded” actually means
+### 8.2 Role in the Deployment Pipeline
 
-When Cloud Run gives you a URL like:
+CI/CD sits on top of the existing deployment process:
 
-https://clinical-nlp-api-xxxx.europe-west1.run.app
+- Docker defines the runtime  
+- Cloud Run hosts the service  
+- CI/CD automates build and deployment  
 
-That means:
+Resulting flow:
 
-You now have a live server running in Google’s infrastructure.
+```text
+Code change → GitHub push → CI/CD pipeline → Build → Deploy → Live API
+```
 
-Concretely:
+This ensures that any change to the codebase results in a consistent rebuild and redeployment of the service.
 
-* Google is hosting your Docker container
-* It is running 24/7 (serverless, auto-managed)
-* It scales automatically on traffic
-* It restarts if it crashes
-* It exposes HTTP endpoints (/health, /predict)
+---
 
-So your system is now:
+### 8.3 Workflow Overview (GitHub Actions)
 
-Client → HTTPS URL → Cloud Run container → your FastAPI app → model inference
+The pipeline is defined in: `.github/workflows/deploy.yaml`
 
-Does it run permanently?
+Trigger: `git push` to main branch
 
-Yes, but with nuance:
+Pipeline steps:
 
-* It runs continuously while deployed
-* It may scale to zero when idle (cold start)
-* It is not “running on your laptop anymore”
-* You only redeploy when you change code or image
+1. Checkout repository (with `Git LFS` enabled)
+2. Pull model files via `Git LFS`
+3. Verify model presence
+4. Authenticate with Google Cloud (service account key via GitHub Secrets)
+5. Configure project
+6. Build container image using Cloud Build
+7. Push image to Container Registry (`gcr.io`)
+8. Deploy new revision to Cloud Run
 
-So CI/CD is just automation of redeployments.
+This replicates the manual deployment process in a fully automated manner.
 
-Why CI/CD still matters (even if you “won’t update it”)
+---
 
-Even if you never touch it again, CI/CD is still useful because:
+### 8.4 Model Handling (Git LFS)
 
-* proves production-grade engineering workflow
-* shows reproducible deployment pipeline
-* allows future fixes without manual redeploy steps
-* is a strong DevOps signal on CV / portfolio
+Large model files are managed using `Git LFS`:
 
-But yes:
+- `.gitattributes` tracks model file types (`.safetensors`, `.bin`, etc.)
+- Prevents exceeding GitHub file size limits
+- Ensures model files are available during CI/CD
 
-In a static academic project, it is mostly demonstration value.
+CI/CD explicitly pulls these files:
 
+```bash
+git lfs install
+git lfs pull
+git lfs checkout
+```
 
+This guarantees the model is present before building the container.
 
+---
 
+### 8.5 Authentication & Secrets
 
+Secure deployment requires authentication with Google Cloud.
 
+This is handled via:
 
+- Service account JSON key (created in GCP)
+- Stored in GitHub as a secret: `GCP_SA_KEY`
+- Project ID stored as: `GCP_PROJECT_ID`
 
+These are injected into the workflow and used for:
 
+* Cloud Build execution
+* Cloud Run deployment
 
-
+No credentials are stored in the codebase.
 
 
 
