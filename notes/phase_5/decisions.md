@@ -30,45 +30,6 @@ The phase has three core goals:
 
 ---
 
-## Overall Structure 
-
-In scripts/phase_5_inference/
-
-* run_full_dataset.py
-
-In app/
-
-* main.py
-
-✔ Proper separation of concerns
-
-* core logic vs execution vs API
-
-✔ Reusable ML pipeline
-
-* not a one-off script
-
-✔ Deployable architecture
-
-* same code used in:
-    * single-report inference
-    * real-time inference
-
-✔ Production thinking
-
-* modular
-* testable
-* extensible
-You are now transitioning from “analysis project” → production-style ML system
-
-This structure is exactly what makes your project:
-
-* credible
-* scalable
-* high-signal for jobs
-
----
-
 ## Full Pipeline Construction
 
 ### 1. Overview 
@@ -1042,7 +1003,7 @@ This section describes how the clinical NLP pipeline is transformed from a local
 
 The deployment process follows a staged approach, with each step addressing a specific requirement:
 
-- **Local execution** → verify core pipeline and model behaviour  
+- **Local API execution** → verify core pipeline and model behaviour  
 - **Containerisation (Docker)** → ensure reproducible runtime environment  
 - **Cloud deployment (Cloud Run)** → expose the API as a public service  
 - **CI/CD (GitHub Actions)** → automate build and deployment on code changes  
@@ -1054,63 +1015,6 @@ The system is ultimately exposed as a lightweight inference API, enabling real-w
 - No additional model logic introduced at deployment stage  
 
 Overall, the focus is not on modifying the model itself, but on packaging, serving, and automating the pipeline in a consistent and production-aligned manner.
-
----
-
-## 2. System Design
-
-The system is implemented as a stateless inference API that exposes the clinical NLP pipeline through a lightweight service layer. The API acts as a thin wrapper over the existing pipeline, enabling external access without modifying core model or processing logic.
-
-### 2.1 Core Properties
-
-- **Stateless Inference**
-  - No database or session storage  
-  - Each request is processed independently  
-  - Enables horizontal scaling in cloud environments  
-
-- **Deterministic**
-  - Identical inputs produce identical outputs  
-  - No stochastic behaviour at inference time  
-  - Ensures reproducibility and reliability  
-
-- **Thin Wrapper Architecture**
-  - API layer contains no model or preprocessing logic and acts only as an interface to the pipeline.
-  - Directly invokes the existing `pipeline.py` module  
-
-- **Single Source of Truth**
-  - All environments (local, container, cloud) use the same `pipeline.py` implementation.
-  - Eliminates divergence between environments  
-
----
-
-### 2.2 API Interface
-
-The system is exposed via a minimal HTTP API designed for inference-only usage.
-
-The API is responsible for:
-
-- Receiving input text via HTTP requests  
-- Passing input directly to the pipeline  
-- Returning structured extraction outputs  
-
-The API does not handle:
-
-- Model training or updates  
-- Data persistence or database interactions  
-- Additional business logic beyond inference orchestration  
-
-This ensures a strict separation between the ML pipeline (logic) and the serving layer (API).
-
----
-
-### 2.3 Design Implications
-
-This design leads to:
-
-- **Consistency:** Identical behaviour across local, containerised, and deployed environments  
-- **Scalability:** Stateless design enables horizontal scaling in Cloud Run  
-- **Maintainability:** Changes to the pipeline propagate automatically to all system stages  
-- **Clarity of responsibility:** Clear boundary between model logic and serving infrastructure  
 
 ---
 
@@ -1194,94 +1098,25 @@ This setup enables a fully automated and reproducible deployment pipeline, where
 
 ---
 
-## API Usage
+## Deployment File Structure
 
-Endpoint:
-
-`POST /predict`
-
-Request format: 
-
-```json
-{
-  "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
-}
+```text
+├── app/
+│   └── main.py
+├── models/
+├── .github/
+│   └── workflows/
+│       └── deploy.yaml
+├── Dockerfile
+├── requirements-api.txt
+├── .dockerignore
+├── .gcloudignore
+├── .gitattributes
 ```
 
-- Input must be a JSON object with a "text" field
-- The value should be a clinical note or report
 
-Input Expectations
-
-The pipeline is designed around clinical note structure (inspired by MIMIC-style data), therefore:
-
-- Text should contain semi-structured clinical language
-- Sections such as HPI, Assessment, Plan improve extraction performance
-- Abbreviations (e.g. SOB, CP) are supported
-- Free-form text is accepted, but structured notes produce more reliable outputs
-
-Example Request:
-
-```bash
-curl -X POST "https://<your-cloud-run-url>/predict" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
-  }'
-```
-
-Example Response (simplified)
-
-```json
-{
-  "entities": [
-    {
-      "entity_text": "SOB",
-      "concept": "dyspnoea",
-      "entity_type": "SYMPTOM"
-    }
-  ]
-}
-```
 
 ---
-
-
-
-2. Deployment Stages (core section)
-
-This is the backbone.
-
-Structure it like this:
-
-⸻
-
-2.1 Local API Validation
-
-* FastAPI run locally
-* Tested via:
-    * /health
-    * /predict
-* Purpose: verify pipeline + model correctness
-
-No deep detail. Just the role.
-
-⸻
-
-2.2 Docker Containerisation
-
-* Dockerfile created
-* Built image locally
-* Ran container locally
-
-Purpose:
-
-* Ensure reproducible environment
-* Match cloud runtime
-
-Important insight:
-
-“Works on my machine” problem eliminated here
 
 ⸻
 
@@ -1315,75 +1150,341 @@ Purpose:
 * Remove manual deployment
 * Ensure reproducibility
 
+---
+
+## 4. API Layer
+
+### 4.1 Purpose
+
+The system exposes the clinical NLP pipeline as a stateless inference API using FastAPI. 
+The API acts as a lightweight service layer that provides external access to the pipeline without modifying any underlying model or processing logic.
+
+Responsibilities:
+
+- Receive input text via HTTP requests  
+- Validate input format  
+- Pass input directly to the pipeline (`run_pipeline`)  
+- Return structured entity extraction results as JSON  
+
+The API does not handle:
+
+- Model training or updates  
+- Data persistence or storage  
+- Additional business logic beyond inference orchestration  
+
+This enforces a strict separation between:
+
+- ML layer → pipeline and model logic  
+- Serving layer → API interface  
 
 ---
 
-## 3. API Design
+### 4.2 Design Decisions
 
-### 3.1 `/predict`
+Framework & Interface:
+
+- FastAPI selected for high-performance, asynchronous API handling with minimal overhead  
+- Pydantic used to enforce strict input validation and ensure consistent request structure  
+
+Model Execution:
+
+- Model loaded at startup to avoid repeated initialisation and reduce per-request latency  
+- Direct integration with `pipeline.py` ensures a single implementation of inference logic (no duplication)  
+
+System Behaviour
+
+- Stateless request–response design enables horizontal scaling in Cloud Run  
+- Structured JSON output ensures compatibility with downstream systems and evaluation pipelines   
+
+---
+
+### 4.3 Endpoints
+
+**`POST /predict`**
 
 - Input: raw clinical text  
-- Output: structured entity JSON  
+- Output: structured entity extraction JSON  
 - Logic: direct call to `run_pipeline()`  
 
----
+Request format:
 
-### 3.2 `/health`
+```json
+{
+  "text": "HPI: Pt c/o CP and SOB. O2 started. Assessment: possible pneumonia."
+}
 
-- Returns system status  
-- Used for deployment monitoring and uptime checks  
+Response format (simplified):
 
+```json
+{
+  "entities": [...]
+}
+```
 
-Real sequence:
+**`GET /health`**
 
-1. User sends HTTP request:
+- Returns system status
+- Used for monitoring and deployment health checks
 
-POST https://your-app.run.app/predict
-
-2. Cloud Run receives it
-3. Cloud Run forwards to your container
-4. Uvicorn receives request
-5. FastAPI routes to /predict
-6. Pydantic validates input
-7. Your function runs:
-
-run_pipeline(...)
-
-8. Output returned as JSON
-9. Response sent back to user
-
-1. Local setup (clear, reproducible)
-
-* install deps
-* run API
-* test endpoint
-
-2. API usage
-
-* input format ({"text": ...})
-* example request
-* example response
-
-3. Deployed endpoint
-
-* live URL
-* same request example
+Example response:
+```json
+{
+  "status": "ok"
+}
+```
 
 ---
 
-## 7. Scope Constraints (Important)
+### 4.4 Request Processing Flow
 
-The deployment is intentionally minimal.
+Each request follows a linear inference path through the serving stack:
 
-The following are NOT included:
+```text
+Client → Cloud Run → Container → Uvicorn → FastAPI → /predict → Pydantic validation → run_pipeline() → JSON response → Client
+```
 
-- ❌ Batch inference endpoint  
-- ❌ Database integration  
-- ❌ Authentication layer  
-- ❌ Frontend interface  
-- ❌ Feature store  
+Detailed sequence:
+
+1. Client sends HTTP POST request to `/predict`  
+2. Cloud Run routes the request to the container instance  
+3. Uvicorn receives the request and passes it to FastAPI  
+4. FastAPI routes the request to the `/predict` endpoint  
+5. Pydantic validates the input schema (`text` field)  
+6. Input is transformed into pipeline-compatible format  
+7. `run_pipeline()` executes model + rule-based extraction  
+8. Results are returned as structured JSON to the client  
 
 ---
+
+### 4.5 Local Validation
+
+The API was validated locally prior to deployment to ensure correctness of:
+
+- Model loading  
+- Pipeline execution  
+- Endpoint behaviour  
+
+Validation checks:
+
+- `GET /health` → confirms API is running  
+- `POST /predict` → verifies end-to-end inference  
+
+Local access:
+
+- http://127.0.0.1:8000  
+- http://127.0.0.1:8000/docs  
+
+---
+
+## 5. API Usage
+
+### 5.1 `POST /predict` Endpoint
+
+Request format: 
+
+```json
+{
+  "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
+}
+```
+
+- Input must be a JSON object with a "text" field
+- The value should be a clinical note or report
+
+---
+
+### 5.2 Input Expectations
+
+The pipeline is designed around clinical note structure (inspired by MIMIC-style data), therefore:
+
+- Text should contain semi-structured clinical language
+- Sections such as HPI, Assessment, Plan improve extraction performance
+- Abbreviations (e.g. SOB, CP) are supported
+- Free-form text is accepted, but structured notes produce more reliable outputs
+
+---
+
+### 5.3 Input and Output Examples
+
+Example Request:
+
+```bash
+curl -X POST "https://clinical-nlp-api-1064509144938.europe-west1.run.app/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
+  }'
+```
+
+Example Response (simplified):
+
+```json
+{
+  "entities": [
+    {
+      "note_id":"note_1",
+      "subject_id":"",
+      "hadm_id":"",
+      "icustay_id":"",
+      "entity_text":"SOB",
+      "concept":"dyspnoea",
+      "entity_type":"SYMPTOM",
+      "char_start":14,
+      "char_end":17,
+      "sentence_text":"Pt c/o CP and SOB.",
+      "section":"hpi",
+      "negated":false,
+      "validation": {
+        "is_valid":true,
+        "confidence":0.6005578637123108,
+        "task":"symptom_presence"
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 6. Docker Containerisation
+
+### 6.1 Purpose
+
+The API is containerised using Docker to create a reproducible runtime environment across:
+
+- Local development  
+- Containerised testing  
+- Cloud deployment (Cloud Run)  
+
+The container packages these components into a single deployable unit (Docker image), eliminating environment-specific issues::
+
+- Application code  
+- Trained model
+- Dependencies
+- Runtime configuration  
+
+As a result, the system can be:
+
+- Built once  
+- Deployed consistently  
+- Executed identically across environments  
+
+This container serves as the foundation for deployment to Cloud Run.
+
+---
+
+### 6.2 Container Structure
+
+The container is defined by the following files:
+
+- `Dockerfile` → defines how the image is built  
+- `requirements-api.txt` → Python dependencies for the API  
+- `.dockerignore` → excludes unnecessary files from the build context  
+
+---
+
+### 6.3 Image Build Logic
+
+The Docker image is constructed in stages:
+
+1. **Base image**
+
+    ```dockerfile
+    FROM python:3.11-slim
+    ```
+    - Lightweight Python runtime
+    - Minimises image size
+
+2. **Working directory**
+
+    ```dockerfile
+    WORKDIR /app
+    ```
+    - Establishes a single consistent application root for all operations
+
+3. **System dependencies**
+
+    ```dockerfile
+    RUN apt-get update && apt-get install -y build-essential
+    ```
+    - Required for compiling certain Python packages
+
+4. **Python dependencies**
+
+    ```dockerfile
+    COPY requirements-api.txt .
+    RUN pip install --no-cache-dir -r requirements-api.txt
+    ```
+    - Installed in a cached layer for efficient rebuilds
+
+5. **NLTK resources**
+
+    ```dockerfile
+    RUN python -m nltk.downloader punkt
+    ```
+    - Ensures required tokenizer is available at runtime
+    - Built into the image for deterministic behaviour
+
+6. **Application code**
+
+    ```dockerfile
+    COPY app/ ./app/
+    COPY src/ ./src/
+    ```
+    - Copies API and pipeline code into the container
+
+7. **Model inclusion**
+
+    ```dockerfile
+    COPY models/bioclinicalbert_final/ ./models/bioclinicalbert_final/
+    ```
+    - Embeds trained model directly into the image
+    - Ensures no external dependency at runtime
+
+8. **Environment configuration**
+
+    ```dockerfile
+    ENV PYTHONPATH=/app:/app/src
+    ENV PORT=8080
+    EXPOSE 8080
+    ```
+    - Enables module imports
+    - Aligns with Cloud Run port requirements
+
+9. **Startup command**
+
+    ```dockerfile
+    CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+    ```
+    - Launches the API server
+    - Compatible with both local container execution and Cloud Run
+
+---
+
+### 6.4 Local Container Validation
+
+The container was validated locally to ensure it behaves identically to the deployed service.
+
+Validation steps:
+
+- Docker image built from the Dockerfile
+- Container executed locally
+- API endpoints tested inside container environment
+
+Checks performed:
+
+- API starts successfully inside container
+- Model loads correctly within container
+- /predict endpoint returns expected output
+
+This step verifies:
+
+- Dependency completeness
+- Correct file inclusion (especially model files)
+- Runtime compatibility
+
+---
+
 
 ## Ratioanle 
 
@@ -1452,6 +1553,19 @@ This design demonstrates:
 
 ## 10. Limitations (Explicit)
 
+Scope Constraints (Important)
+
+The deployment is intentionally minimal.
+
+The following are NOT included:
+
+- ❌ Batch inference endpoint  
+- ❌ Database integration  
+- ❌ Authentication layer  
+- ❌ Frontend interface  
+- ❌ Feature store  
+
+
 Not implemented:
 
 * request logging
@@ -1505,9 +1619,6 @@ True MLOps (bigger jump)
 * data pipeline for retraining
 * model versioning
 * drift detection
-
-
-
 
 
 
@@ -1668,7 +1779,17 @@ Inference request
 
 curl -X POST "https://clinical-nlp-api-1064509144938.europe-west1.run.app/predict" \
   -H "Content-Type: application/json" \
-  -d '{"text": "..."}'
+  -d '{
+    "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
+  }'
+
+Deployed Endpoint
+
+The API is deployed on Google Cloud Run and accessible via:
+
+* Same endpoints (/health, /predict)
+* Same request/response format
+* Fully reproducible behaviour compared to local environment
 
 9. System Properties Achieved
 
@@ -1716,20 +1837,6 @@ it’s:
 
 * not needed for this project to function
 * but highly valuable as evidence of engineering maturity
-
-
-
----
-
-
-
-
-
-
-
-
-
-
 
 ---
 
