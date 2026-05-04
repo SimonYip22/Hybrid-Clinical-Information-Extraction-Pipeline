@@ -6,25 +6,27 @@
 
 # Executive Summary
 
-End-to-end clinical NLP engineering system for transforming unstructured ICU progress notes into structured, auditable clinical entity outputs for downstream analysis and machine-learning workflows.
+Cloud-deployed hybrid clinical NLP system for converting unstructured ICU progress notes into structured, auditable clinical entity outputs for downstream analysis and machine-learning workflows.
 
-***Access Live API:*** https://clinical-nlp-api-1064509144938.europe-west1.run.app/docs
+***Live API:*** https://clinical-nlp-api-1064509144938.europe-west1.run.app/docs
 
-The pipeline uses a hybrid extraction-validation architecture. Deterministic, section-aware regex rules first extract span-aligned candidate entities from ICU notes across three clinically meaningful categories: `SYMPTOM`, `INTERVENTION`, and `CLINICAL_CONDITION`. This rule-based layer is designed to provide broad candidate coverage, schema control, and exact text provenance. A fine-tuned BioClinicalBERT classifier then validates each candidate in sentence context. This transformer layer handles clinical ambiguity such as intent, negation, temporality, and uncertainty. The model was fine-tuned using **1,200 manually annotated entity examples**, with threshold tuning used to prioritise precision for the final structured outputs.
+The pipeline uses a hybrid extraction-validation architecture. Deterministic, section-aware regex rules first extract span-aligned candidate entities from ICU notes across three clinically meaningful categories: `SYMPTOM`, `INTERVENTION`, and `CLINICAL_CONDITION`. This rule-based layer is designed to provide broad candidate coverage, schema control, and exact text provenance. 
 
-The system was developed on a filtered PhysioNet MIMIC-IV ICU note corpus of **162,296 progress reports across 32,910 ICU stays**. Full-corpus execution generated **780,941 candidate entities**, of which **319,852** were retained as clinically valid after transformer validation (**40.96% retained**).
+A fine-tuned BioClinicalBERT classifier then validates each candidate in sentence context. This transformer layer handles contextual ambiguity such as intent, negation, temporality, and uncertainty. The model was fine-tuned using **1,200 manually annotated entity examples**, with threshold tuning used to prioritise precision for the final structured outputs.
 
-Compared with the rule-based baseline, BioClinicalBERT validation substantially improved precision and reduced false positives, while lowering recall due to stricter filtering. Precision increased from **0.571 to 0.833** (+45.9% relative improvement), and false positives decreased from **66 to 11** (-83.3%).
+The system was developed on a filtered PhysioNet MIMIC-IV ICU note corpus of **162,296 progress reports across 32,910 ICU stays**. Full-corpus execution generated **780,941 candidate entities**, of which **319,852** were classified as valid after transformer validation (**40.96% retained**).
 
-The final system supports both large-scale offline corpus processing and real-time inference through a stateless FastAPI service, containerised with Docker and deployed on Google Cloud Run. GitHub Actions CI/CD automates reproducible deployment updates. 
-
-This work is research-focused and is not a live clinical decision-support system or regulatory-validated medical device.
+Compared with the rule-based baseline, BioClinicalBERT validation substantially improved precision and reduced false positives on an evaluation set, while lowering recall due to stricter filtering. Precision increased from **0.571 to 0.833** (+45.9% relative improvement), and false positives decreased from **66 to 11** (-83.3%).
 
 | System | Precision | Recall | F1-Score | False Positives | Interpretation |
 |--------|----------:|-------:|---------:|----------------:|----------------|
 | Rule-based baseline | 0.571 | **0.989** | **0.724** | 66 | Broad candidate generation with near-complete recall but high noise |
 | BioClinicalBERT validation | **0.833** | 0.618 | 0.710 | **11** | Cleaner final outputs with substantially fewer false positives |
 | Change | **+0.262** | -0.371 | -0.014 | **-55** | Precision improved substantially; recall loss reflects conservative filtering |
+
+The final system supports both large-scale offline corpus processing and real-time inference through a stateless FastAPI service, containerised with Docker and deployed on Google Cloud Run. GitHub Actions CI/CD automates reproducible deployment updates. 
+
+This work is research-focused and is not a live clinical decision-support system or regulatory-validated medical device.
 
 ![Hybrid Clinical NLP Pipeline Architecture](images/system_architecture.png)
 
@@ -35,6 +37,62 @@ _Figure: End-to-end hybrid extraction-validation architecture_
 ---
 
 # Table of Contents
+
+<details>
+<summary>Expand table of contents</summary>
+
+1. [Clinical Background & Motivation](#1-clinical-background--motivation)
+   - [1.1 Clinical Data in EHR Systems](#11-clinical-data-in-ehr-systems)
+   - [1.2 The Role of Clinical NLP](#12-the-role-of-clinical-nlp)
+   - [1.3 Current System Paradigms in Clinical NLP](#13-current-system-paradigms-in-clinical-nlp)
+   - [1.4 Design Motivation and Project Positioning](#14-design-motivation-and-project-positioning)
+2. [Project Goals & Contributions](#2-project-goals--contributions)
+   - [2.1 Primary Objectives](#21-primary-objectives)
+   - [2.2 Key Technical Contributions](#22-key-technical-contributions)
+3. [Pipeline Overview](#3-pipeline-overview)
+   - [3.1 System Scope](#31-system-scope)
+   - [3.2 End-to-End Pipeline](#32-end-to-end-pipeline)
+   - [3.3 Hybrid Extraction-Validation Structure](#33-hybrid-extraction-validation-structure)
+   - [3.4 Output Format](#34-output-format)
+4. [Data Layer: Corpus Construction & Structural Validation](#4-data-layer-corpus-construction--structural-validation)
+   - [4.1 Data Source: MIMIC-IV (v3.1)](#41-data-source-mimic-iv-v31)
+   - [4.2 Pipeline Overview](#42-pipeline-overview)
+   - [4.3 Cohort Definition & Filtering](#43-cohort-definition--filtering)
+   - [4.4 Final Corpus Output](#44-final-corpus-output)
+   - [4.5 Structural Profiling (Feasibility Validation)](#45-structural-profiling-feasibility-validation)
+5. [Preprocessing Layer](#5-preprocessing-layer)
+   - [5.1 Preprocessing Overview](#51-preprocessing-overview)
+   - [5.2 Implementation](#52-implementation)
+   - [5.3 Design Rationale](#53-design-rationale)
+6. [Structural Parsing Layer](#6-structural-parsing-layer)
+   - [6.1 Section Detection & Extraction](#61-section-detection--extraction)
+   - [6.2 Sentence Segmentation](#62-sentence-segmentation)
+7. [Entity Schema Design](#7-entity-schema-design)
+   - [7.1 Entity Schema Overview](#71-entity-schema-overview)
+   - [7.2 Entity Scope](#72-entity-scope)
+   - [7.3 Entity Boundary Definitions](#73-entity-boundary-definitions)
+   - [7.4 Excluded Entity Types](#74-excluded-entity-types)
+   - [7.5 JSON Output Schema](#75-json-output-schema)
+   - [7.6 Schema Design Decisions](#76-schema-design-decisions)
+8. [Rule-Based Extraction Layer](#8-rule-based-extraction-layer)
+   - [8.1 Extraction Overview](#81-extraction-overview)
+   - [8.2 Negation Handling](#82-negation-handling)
+   - [8.3 Symptom Extraction](#83-symptom-extraction)
+   - [8.4 Intervention Extraction](#84-intervention-extraction)
+   - [8.5 Clinical Condition Extraction](#85-clinical-condition-extraction)
+   - [8.6 Integrated Extraction Pipeline](#86-integrated-extraction-pipeline)
+9. [ML Modelling Strategy](#9-ml-modelling-strategy)
+   - [9.1 Validation Task Formulation](#91-validation-task-formulation)
+   - [9.2 Why Validation Is Seperate From Extraction](#92-why-validation-is-seperate-from-extraction)
+   - [9.3 Why Not End-to-End Model Extraction](#93-why-not-end-to-end-model-extraction)
+   - [9.4 Model Classes Considered](#94-model-classes-considered)
+   - [9.5 Why Transformer Encoders](#95-why-transformer-encoders)
+   - [9.6 Encoder-Based Models vs Generative LLMs](#96-encoder-based-models-vs-generative-llms)
+   - [9.7 Why Fine-Tuning Rather than Training from Scratch](#97-why-fine-tuning-rather-than-training-from-scratch)
+
+
+
+</details>
 
 ---
 
@@ -611,7 +669,7 @@ These definitions ensure that entity outputs remain clinically interpretable and
 | `CLINICAL_CONDITION` | New or ongoing clinically significant conditions; acute complications; reasons for ICU admission | Historical conditions; chronic baseline diagnoses without acute change; resolved conditions | `AKI` → `CLINICAL_CONDITION`; `sepsis` → `CLINICAL_CONDITION`; chronic conditions excluded unless acute worsening is indicated |
 
 ##
-## 7.3 Excluded Entity Types
+## 7.4 Excluded Entity Types
 
 The following entity types are intentionally excluded from the current schema:
 
@@ -624,7 +682,7 @@ The following entity types are intentionally excluded from the current schema:
 These exclusions keep the schema focused on narrative clinical information that benefits from text extraction, rather than duplicating data already available in structured form.
 
 ##
-## 7.4 JSON Output Schema
+## 7.5 JSON Output Schema
 
 Each extracted entity is represented as one JSON object.
 
@@ -663,7 +721,7 @@ Each extracted entity is represented as one JSON object.
 | Transformer Validation | `validation` (`is_valid`, `confidence`, `task`) | Stores trnsformer-based contextual validation, including binary validity judgement, confidence score, and task type |
 
 ##
-## 7.5 Schema Design Decisions
+## 7.6 Schema Design Decisions
 
 - One JSON object is generated per entity; a single note may contain multiple entities.
 - `entity_text` preserves the exact extracted surface form from the note.
@@ -1245,7 +1303,7 @@ Examples:
 The validation task is therefore focused on contextual correctness rather than span detection.
 
 ##
-## 9.2 Why Validation Is Separate from Extraction
+## 9.2 Why Validation Is Separate From Extraction
 
 The pipeline deliberately separates extraction from validation:
 
@@ -3868,6 +3926,9 @@ The final deployment demonstrates that the project is not only a local modelling
 
 # 15. API Usage 
 
+This section shows how to use the deployed Cloud Run API. For local setup and full reproduction, see Section 21.
+
+##
 ## 15.1 Endpoint & Input
 
 **Base URL:** https://clinical-nlp-api-1064509144938.europe-west1.run.app
@@ -4245,43 +4306,234 @@ The most appropriate near-term use is therefore not automated decision-making. I
 
 ---
 
-## 20. Repository Structure
+# 20. Repository Structure
+
+```text
+Hybrid-Clinical-Notes-Extraction-Pipeline/
+│
+├── app/
+│   └── main.py                         # FastAPI service exposing health and prediction endpoints
+│
+├── src/
+│   ├── deterministic_extraction/        # Preprocessing, parsing, segmentation, and rule-based extraction
+│   │   ├── preprocessing.py
+│   │   ├── section_extraction.py
+│   │   ├── sentence_segmentation.py
+│   │   └── extraction_rules/            # Entity-specific rules for symptoms, interventions, and conditions
+│   │       ├── symptom_rules.py
+│   │       ├── intervention_rules.py
+│   │       └── clinical_condition_rules.py    
+│   │
+│   └── pipeline/                        # End-to-end extraction-validation runtime
+│       ├── pipeline.py                  # Orchestrates rule extraction and transformer validation
+│       ├── extraction.py                # Candidate extraction interface
+│       └── validation.py                # BioClinicalBERT validation and thresholding
+│ 
+├── scripts/                             # Data processing, training, evaluation, and utility scripts
+│
+├── models/
+│   └── bioclinicalbert_final/           # Final trained validation model used by API deployment
+│
+├── results/                             # Cross-validation summaries, threshold-tuning results, and plots    
+│
+├── outputs/
+│   └── evaluation/                      # Final evaluation metrics, summary tables, and plots
+│
+├── images/
+│   ├── system_architecture.dot          # Graphviz source for system architecture diagram
+│   └── system_architecture.png          # Rendered architecture diagram used in README
+│
+├── notes/
+│   └── phase_*/                         # Development notes and design-decision logs
+│
+├── .github/
+│   └── workflows/
+│       └── deploy.yaml                  # GitHub Actions workflow for Cloud Run deployment
+│
+├── Dockerfile                           # Container build definition
+├── requirements.txt                     # Full development/modelling environment
+├── requirements-api.txt                 # Minimal API/runtime dependencies
+├── .gcloudignore                        # Excludes local data, outputs, caches, and environments from Cloud Build context
+├── .dockerignore                        # Excludes local data, outputs, caches, and environments from Docker build context
+├── .gitignore                           # Excludes local data, generated datasets, caches, and environments
+├── .gitattributes                       # Git LFS tracking for model artefacts
+└── README.md                            # Project documentation
+```
+
+Raw MIMIC-IV data, processed corpus files, full generated entity datasets, row-level prediction outputs, local environments, cache files, and private credentials are not committed to the repository. Only source code, deployment configuration, model artefacts required for inference, documentation, diagrams, and summary-level evaluation artefacts are included.
 
 ---
 
-## 21. How to Run
+# 21. Local Setup and Reproduction
+
+## 21.1 Run the API Locally
+
+Clone the repository:
+
+```bash
+git clone https://github.com/SimonYip22/Hybrid-Clinical-Notes-Extraction-Pipeline.git
+cd Hybrid-Clinical-Notes-Extraction-Pipeline
+```
+
+Create and activate a virtual environment:
+
+```bash
+python3 -m venv venv_api
+source venv_api/bin/activate
+```
+
+Install API/runtime dependencies:
+
+```bash
+pip install -r requirements-api.txt
+```
+
+Run the FastAPI service locally:
+
+```bash
+PYTHONPATH=src uvicorn app.main:app --reload 
+```
+
+Open the local API documentation:
+
+http://127.0.0.1:8000/docs
+
+Or test the prediction endpoint:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "HPI: Pt c/o CP and SOB. Assessment: possible pneumonia."
+  }'
+```
+
+##
+## 21.2 Full Pipeline Reproduction
+
+Full reproduction of the corpus construction, training, evaluation, and full-corpus inference requires access to [MIMIC-IV](https://physionet.org/content/mimiciv/3.1/) through PhysioNet. Raw MIMIC-IV data and generated full-corpus outputs are not included in this repository.
 
 ---
 
-## 22. Requirements & Dependencies
+# 22. Requirements & Dependencies
+
+The repository provides two dependency files depending on the intended use case:
+
+| File | Purpose |
+|------|---------|
+| `requirements-api.txt` | Minimal runtime environment for API inference and Cloud Run deployment |
+| `requirements.txt` | Full development environment for preprocessing, model training, evaluation, visualisation, and notebooks |
+
+For local API inference, install the API requirements:
+
+```bash
+pip install -r requirements-api.txt
+```
+
+For full development or reproduction workflows, install the full requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+Core dependencies include:
+
+```text
+# Data processing
+pandas
+numpy
+scipy
+
+# Machine learning
+scikit-learn
+
+# Deep learning
+torch
+
+# Clinical NLP / Transformers
+transformers
+datasets
+accelerate
+regex
+nltk
+
+# Evaluation and visualisation
+matplotlib
+tqdm
+
+# API deployment
+fastapi
+uvicorn
+pydantic
+
+# Notebook development
+ipykernel
+notebook
+matplotlib-inline
+```
+
+The API dependency file intentionally excludes development-only packages such as notebook tooling, visualisation utilities, and training-specific libraries where possible. This keeps the deployed inference environment smaller and focused on runtime execution.
 
 ---
 
-## 23. License
+# 23. License
 
 This project is licensed under the MIT License; see the [LICENSE](LICENSE) file for details
 
 ---
 
-## 24. Copyright
+# 24. Copyright
+
+Copyright © 2026 Simon Yip. All rights reserved.  
 
 ---
 
-## 25. Citation
+# 25. Citation
+
+If you use or reference this project, please cite the GitHub repository:
+
+```bibtex
+@software{yip_2026_extraction_pipeline,
+  author = {Simon Yip},
+  title = {Hybrid Clinical Notes Extraction Pipeline},
+  url = {https://github.com/SimonYip22/Hybrid-Clinical-Notes-Extraction-Pipeline},
+  year = {2026},
+  note = {GitHub repository}
+}
+```
 
 ---
 
-## 25. Acknowledgments
+# 26. Acknowledgements
 
-**ChatGPT**
-- Provided guidance throughout the project, including code explanations, debugging, project structure and architectural design
+### Data Source
 
-All other components, including Python scripts, preprocessing, model training, and visualisations, were developed by the author. No additional proprietary datasets, papers, or external tutorials were required beyond those cited above
+This project uses data derived from the MIMIC-IV database. MIMIC-IV access is controlled through PhysioNet, and raw clinical data is not redistributed in this repository.
+
+- Johnson, A. E. W., Bulgarelli, L., Shen, L., et al. (2023). *MIMIC-IV, a freely accessible electronic health record dataset*. Scientific Data, 10, 1. https://doi.org/10.1038/s41597-022-01899-x
+
+- Johnson, A., Bulgarelli, L., Pollard, T., Gow, B., Moody, B., Horng, S., Celi, L. A., & Mark, R. (2024). *MIMIC-IV* (version 3.1). PhysioNet. RRID:SCR_007345. https://doi.org/10.13026/kpb9-mt58
+
+- Goldberger, A. L., Amaral, L. A. N., Glass, L., Hausdorff, J. M., Ivanov, P. C., Mark, R. G., Mietus, J. E., Moody, G. B., Peng, C. K., & Stanley, H. E. (2000). PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals. *Circulation*, 101(23), e215–e220.
+
+### Related Prior Work
+
+This project complements the author’s previous ICU structured-data modelling project:
+
+- Yip, S. (2026). *Time-Series ICU Patient Deterioration Predictor* (1.0.0). Zenodo. https://doi.org/10.5281/zenodo.18487174
+
+- GitHub repository: https://github.com/SimonYip22/Time-Series-ICU-Patient-Deterioration-Predictor
+
+### AI Assistance Disclosure
+
+ChatGPT was used as an assistive development tool during this project, including support with code explanation, debugging, README structuring, documentation refinement, architectural discussion, and project presentation.
+
+All project-specific implementation decisions, code integration, testing, evaluation interpretation, repository organisation, and final documentation were reviewed and completed by the author. ChatGPT was not used as a source of clinical data, labelled examples, model outputs, or evaluation ground truth.
 
 ---
 
 **Project Status:** Core Development Complete  
-**Last Updated:** 3rd February 2026  
+**Last Updated:** 4th May 2026  
 **Author & Maintainer:** Simon Yip - simon.yip@city.ac.uk
 
 ---
