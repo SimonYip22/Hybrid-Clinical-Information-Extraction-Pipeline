@@ -83,7 +83,7 @@ _Figure: End-to-end hybrid extraction-validation architecture_
    - [8.6 Integrated Extraction Pipeline](#86-integrated-extraction-pipeline)
 9. [ML Modelling Strategy](#9-ml-modelling-strategy)
    - [9.1 Validation Task Formulation](#91-validation-task-formulation)
-   - [9.2 Why Validation Is Seperate From Extraction](#92-why-validation-is-seperate-from-extraction)
+   - [9.2 Why Validation is Separate from Extraction](#92-why-validation-is-separate-from-extraction)
    - [9.3 Why Not End-to-End Model Extraction](#93-why-not-end-to-end-model-extraction)
    - [9.4 Model Classes Considered](#94-model-classes-considered)
    - [9.5 Why Transformer Encoders](#95-why-transformer-encoders)
@@ -1379,7 +1379,7 @@ Examples:
 The validation task is therefore focused on contextual correctness rather than span detection.
 
 ##
-## 9.2 Why Validation Is Separate From Extraction
+## 9.2 Why Validation is Separate from Extraction
 
 The pipeline deliberately separates extraction from validation:
 
